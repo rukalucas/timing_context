@@ -80,12 +80,6 @@ class BaseTrainer:
         self.csv_writer.writeheader()
         self.csv_file.flush()
 
-    def _log_gradients(self) -> None:
-        """Log gradient histograms to TensorBoard."""
-        for name, param in self.model.named_parameters():
-            if param.grad is not None:
-                self.writer.add_histogram(f'train/gradients/{name}', param.grad, self.step)
-
     def train_step(self, batch: list, task: BaseTask) -> float:
         """Unified training step for both single-trial and sequence tasks.
 
@@ -125,19 +119,15 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Compute and log gradient norm
-        total_norm = 0.0
-        for p in self.model.parameters():
-            if p.grad is not None:
-                param_norm = p.grad.data.norm(2)
-                total_norm += param_norm.item() ** 2
-        total_norm = total_norm ** 0.5
+        # Compute and log gradient norms per parameter
+        for name, param in self.model.named_parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2).item()
+                self.writer.add_scalar(f'train/grad_norm/{name}', param_norm, self.step)
 
-        # Log loss, gradient norm, and gradient histograms
+        # Log loss
         loss_val = loss.item()
         self.writer.add_scalar('train/loss', loss_val, self.step)
-        self.writer.add_scalar('train/grad_norm', total_norm, self.step)
-        self._log_gradients()
 
         self.optimizer.step()
 
