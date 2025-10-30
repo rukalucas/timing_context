@@ -126,6 +126,13 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         loss.backward()
 
+        # Gradient clipping
+        if self.clip_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(),
+                self.clip_grad_norm
+            )
+
         # Compute and log gradient norms
         total_grad_norm = 0.0
         for name, param in self.model.named_parameters():
@@ -135,14 +142,6 @@ class BaseTrainer:
                 self.writer.add_scalar(f'train/grad_norm/{name}', param_norm, self.step)
         total_grad_norm = total_grad_norm ** 0.5
         self.writer.add_scalar('train/grad_norm/total', total_grad_norm, self.step)
-
-        # Gradient clipping
-        if self.clip_grad_norm is not None:
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(),
-                self.clip_grad_norm
-            )
-
         # Log loss
         loss_val = loss.item()
         self.writer.add_scalar('loss', loss_val, self.step)
