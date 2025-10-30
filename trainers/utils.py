@@ -23,7 +23,8 @@ class BaseTrainer:
         batch_size: int = 64,
         log_interval: int = 100,
         checkpoint_interval: int = 1000,
-        optimizer_type: str = 'adam'
+        optimizer_type: str = 'adam',
+        weight_decay: float = 0.01
     ):
         """Initialize base trainer.
 
@@ -34,7 +35,8 @@ class BaseTrainer:
             batch_size: Default batch size for training
             log_interval: Steps between logging
             checkpoint_interval: Steps between checkpoints
-            optimizer_type: Optimizer type ('adam' or 'sgd')
+            optimizer_type: Optimizer type ('adam', 'adamw', or 'sgd')
+            weight_decay: Weight decay for AdamW optimizer (default 0.01)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -48,10 +50,12 @@ class BaseTrainer:
         # Optimizer and loss
         if optimizer_type.lower() == 'adam':
             self.optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        elif optimizer_type.lower() == 'adamw':
+            self.optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         elif optimizer_type.lower() == 'sgd':
             self.optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
         else:
-            raise ValueError(f"Unknown optimizer_type: {optimizer_type}. Use 'adam' or 'sgd'.")
+            raise ValueError(f"Unknown optimizer_type: {optimizer_type}. Use 'adam', 'adamw', or 'sgd'.")
 
         self.criterion = nn.MSELoss(reduction='none')
 
