@@ -1,0 +1,53 @@
+# sequence_instructed -> transition (rule_cue_prob 0.9->0.0 gradually) -> inferred
+
+trainer_type: sequential
+random_seed: 42
+
+tasks:
+  - task_type: sequence_instructed
+    num_steps: 2000
+    task:
+      dt: 10.0
+      input_noise_std: 0.05
+      w_m: 0.1
+      trials_per_sequence: 40
+
+  - task_type: transition
+    num_steps: 2000
+    task:
+      dt: 10.0
+      input_noise_std: 0.05
+      w_m: 0.1
+      rule_cue_prob: 0.9  # Starting value (will be scheduled)
+      trials_per_sequence: 40
+    schedule:
+      param_name: rule_cue_prob
+      start_value: 0.9
+      end_value: 0.0
+
+  - task_type: inferred
+    num_steps: 2000
+    task:
+      dt: 10.0
+      input_noise_std: 0.05
+      w_m: 0.1
+      trials_per_sequence: 40
+
+model:
+  input_size: 5
+  hidden_size: 256
+  output_size: 2
+  tau: 100.0
+  dt: 10.0
+  activation: elu
+  noise_std: 0.1
+
+training:
+  learning_rate: 0.0003
+  batch_size: 32
+  total_steps: 6000
+  log_interval: 50
+  num_eval_samples: 32
+  checkpoint_interval: 500
+  log_dir: logs/transition_to_inferred
+  reset_optimizer_between_tasks: true
