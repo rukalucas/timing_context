@@ -126,13 +126,6 @@ class BaseTrainer:
         self.optimizer.zero_grad()
         loss.backward()
 
-        # Gradient clipping
-        if self.clip_grad_norm is not None:
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(),
-                self.clip_grad_norm
-            )
-
         # Compute and log gradient norms
         total_grad_norm = 0.0
         for name, param in self.model.named_parameters():
@@ -141,6 +134,14 @@ class BaseTrainer:
                 total_grad_norm += param_norm ** 2
                 self.writer.add_scalar(f'train/grad_norm/{name}', param_norm, self.step)
         total_grad_norm = total_grad_norm ** 0.5
+
+        # Gradient clipping
+        if self.clip_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(),
+                self.clip_grad_norm
+            )
+            
         self.writer.add_scalar('train/grad_norm/total', total_grad_norm, self.step)
         # Log loss
         loss_val = loss.item()
@@ -169,13 +170,14 @@ class BaseTrainer:
                 (all_outputs, all_inputs, all_targets, all_masks) - lists of tensors per trial
             If return_hidden=True:
                 (all_outputs, all_inputs, all_targets, all_masks, all_hidden, iti_regions,
-                 trial_boundaries, all_iti_inputs, all_iti_targets)
+                 trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs)
                 where:
                 - all_hidden: list of hidden states [B, H] at each timestep
                 - iti_regions: list of (start, end) tuples marking ITI periods
                 - trial_boundaries: list of timestep indices where trials start/end
                 - all_iti_inputs: list of ITI input tensors [B, iti_len, 5]
                 - all_iti_targets: list of ITI target tensors [B, iti_len, 2] (zeros)
+                - all_iti_outputs: list of ITI output tensors [B, iti_len, 2]
         """
         N = len(batch)
         B = batch[0]['inputs'].shape[0]
@@ -187,6 +189,7 @@ class BaseTrainer:
         trial_boundaries = [0] if return_hidden else None
         all_iti_inputs = [] if return_hidden else None
         all_iti_targets = [] if return_hidden else None
+        all_iti_outputs = [] if return_hidden else None
 
         for trial_idx, trial in enumerate(batch):
             trial_inputs = trial['inputs']  # [B, max_trial_len, 5]
@@ -232,20 +235,23 @@ class BaseTrainer:
                 if return_hidden:
                     iti_start = len(all_hidden)
 
+                iti_outputs = []
                 for t in range(iti_inputs.shape[1]):
-                    _, h = self.model(iti_inputs[:, t, :], h)
+                    output_t, h = self.model(iti_inputs[:, t, :], h)
                     if return_hidden:
                         all_hidden.append(h.clone())
+                        iti_outputs.append(output_t)
 
                 if return_hidden:
                     all_iti_inputs.append(iti_inputs)
                     all_iti_targets.append(torch.zeros(B, iti_inputs.shape[1], 2))
+                    all_iti_outputs.append(torch.stack(iti_outputs, dim=1))  # [B, iti_len, 2]
                     iti_regions.append((iti_start, len(all_hidden)))
                     trial_boundaries.append(len(all_hidden))
 
         if return_hidden:
             return (all_outputs, all_inputs, all_targets, all_masks, all_hidden,
-                    iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets)
+                    iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs)
         return all_outputs, all_inputs, all_targets, all_masks
 
     def eval_task(self, task: BaseTask, eval_batch, log_figures: bool = False,
@@ -264,7 +270,13 @@ class BaseTrainer:
         """
         self.model.eval()
         with torch.no_grad():
-            all_outputs, all_inputs, all_targets, all_masks = self._forward_pass(eval_batch, task)
+            # Get ITI data if logging figures
+            if log_figures and hasattr(task, '_generate_iti_inputs'):
+                (all_outputs, all_inputs, all_targets, all_masks, all_hidden,
+                 iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs) = \
+                    self._forward_pass(eval_batch, task, include_iti=True, return_hidden=True)
+            else:
+                all_outputs, all_inputs, all_targets, all_masks = self._forward_pass(eval_batch, task)
 
             # Concatenate for accuracy computation
             outputs = torch.cat(all_outputs, dim=1)
@@ -287,6 +299,13 @@ class BaseTrainer:
                     targets_np = all_targets[trial_idx][batch_idx].numpy()  # [T, 2]
                     mask_np = all_masks[trial_idx][batch_idx].numpy()  # [T, 2]
 
+                    # Get ITI data if available (only if not last trial)
+                    iti_inputs_np = None
+                    iti_outputs_np = None
+                    if hasattr(task, '_generate_iti_inputs') and trial_idx < len(all_iti_inputs):
+                        iti_inputs_np = all_iti_inputs[trial_idx][batch_idx].numpy()  # [iti_len, 5]
+                        iti_outputs_np = all_iti_outputs[trial_idx][batch_idx].numpy()  # [iti_len, 2]
+
                     fig = task.create_trial_figure(
                         inputs=inputs_np,
                         outputs=outputs_np,
@@ -294,7 +313,9 @@ class BaseTrainer:
                         eval_mask=mask_np,
                         trial_idx=trial_idx,
                         batch=eval_batch,
-                        batch_idx=batch_idx
+                        batch_idx=batch_idx,
+                        iti_inputs=iti_inputs_np,
+                        iti_outputs=iti_outputs_np
                     )
                     figure_name = f'{task_name}/trial_{trial_idx+1}' if task_name else f'trial_{trial_idx+1}'
                     self.writer.add_figure(figure_name, fig, self.step)
