@@ -135,6 +135,10 @@ class SequentialTrainer(BaseTrainer):
             param_value = getattr(task, param_name)
             all_metrics[f'train/{param_name}'] = param_value
 
+        # Print evaluation metrics
+        print(f"Evaluation after step {self.step}: " +
+              ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()]))
+
         # Log all metrics
         self.log_metrics(all_metrics, self.step)
 
@@ -186,6 +190,9 @@ class SequentialTrainer(BaseTrainer):
         print(f"Steps per task: {self.task_num_steps}")
         print(f"Reset optimizer between tasks: {self.reset_optimizer_between_tasks}")
         print(f"Log directory: {self.log_dir}")
+
+        # Launch TensorBoard
+        self.launch_tensorboard()
 
         # Train each task sequentially
         for task_idx, (task_name, num_steps) in enumerate(zip(self.task_names, self.task_num_steps)):

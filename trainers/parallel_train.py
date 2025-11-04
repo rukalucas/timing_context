@@ -144,6 +144,9 @@ class ParallelTrainer(BaseTrainer):
 
         print(f"Log directory: {self.log_dir}")
 
+        # Launch TensorBoard
+        self.launch_tensorboard()
+
         loss = None  # Initialize for first eval
         task_idx = 0  # Initialize for first eval
         for step in range(self.total_steps):

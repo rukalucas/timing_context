@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
 import csv
+import subprocess
 
 from tasks import BaseTask
 from models import Model
@@ -71,6 +72,9 @@ class BaseTrainer:
         # Training state
         self.step = 0
 
+        # TensorBoard process
+        self.tensorboard_process = None
+
     def _init_csv(self, fields: list[str]) -> None:
         """Initialize CSV file with specified fields.
 
@@ -86,6 +90,33 @@ class BaseTrainer:
         )
         self.csv_writer.writeheader()
         self.csv_file.flush()
+
+    def launch_tensorboard(self) -> None:
+        """Launch TensorBoard in background and print clickable URL."""
+        try:
+            # Launch tensorboard with default port (tries 6006, 6007, ... if busy)
+            self.tensorboard_process = subprocess.Popen(
+                ['tensorboard', '--logdir', str(self.log_dir)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+
+            # Read the first few lines to find the URL
+            print()
+            for i in range(10):
+                line = self.tensorboard_process.stdout.readline()
+                if 'http://' in line:
+                    print(f"TensorBoard: {line.strip()}\n")
+                    break
+
+        except FileNotFoundError:
+            print("\nWarning: TensorBoard not found. Install with: pip install tensorboard")
+            print("Logs will still be saved to disk.\n")
+        except Exception as e:
+            print(f"\nWarning: Could not launch TensorBoard: {e}")
+            print("Logs will still be saved to disk.\n")
 
     def train_step(self, batch: list, task: BaseTask) -> float:
         """Unified training step for both single-trial and sequence tasks.
@@ -395,7 +426,10 @@ class BaseTrainer:
         return extra_state
 
     def close(self) -> None:
-        """Close logging resources."""
+        """Close logging resources and kill TensorBoard process."""
         self.writer.close()
         if self.csv_file is not None:
             self.csv_file.close()
+        if self.tensorboard_process is not None:
+            self.tensorboard_process.terminate()
+            self.tensorboard_process.wait(timeout=5)
