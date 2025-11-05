@@ -61,10 +61,7 @@ class ParallelTrainer(BaseTrainer):
                 continue
             # Get metric names from task class attribute
             for metric_name in task.metric_names:
-                if self.multi_task:
-                    csv_fields.append(f'{task_name}/{metric_name}')
-                else:
-                    csv_fields.append(metric_name)
+                csv_fields.append(f'{task_name}/{metric_name}')
         # Add task sampling fields for multi-task
         if self.multi_task:
             for task_name in self.task_names:
@@ -92,18 +89,13 @@ class ParallelTrainer(BaseTrainer):
             if not eval_flag:
                 continue
 
-            display_name = task_name if self.multi_task else ''
-
             # Compute accuracies and log trial figures
             task_metrics = self.eval_task(task, eval_batch, log_figures=True,
-                                         task_name=display_name, num_trials=2)
+                                         task_name=task_name, num_trials=2)
 
-            # Add task prefix for multi-task, keep raw for single-task
-            if self.multi_task:
-                for key, value in task_metrics.items():
-                    all_metrics[f'{task_name}/{key}'] = value
-            else:
-                all_metrics.update(task_metrics)
+            # Always add task prefix for consistency
+            for key, value in task_metrics.items():
+                all_metrics[f'{task_name}/{key}'] = value
 
         # Add task sampling counts for multi-task
         if self.multi_task:

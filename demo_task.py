@@ -43,65 +43,18 @@ def demo_instructed_timing_task(num_trials: int, discrete: bool):
         eval_mask = trial_dict['eval_mask'][0].numpy()  # [T, 2]
         loss_mask = trial_dict['loss_mask'][0].numpy()  # [T, 2]
 
-        rule = trial_dict['metadata']['rule'][0]
-        t_s = trial_dict['metadata']['t_s'][0]
-        t_m = trial_dict['metadata']['t_m'][0]
-        stim_direction = trial_dict['metadata']['stim_direction'][0]
-        decision = trial_dict['metadata']['decision'][0]
-
-        rule_name = "Rule 1 (short→pro, long→anti)" if rule == 1 else "Rule 2 (short→anti, long→pro)"
-
-        fig, axes = plt.subplots(4, 1, figsize=(12, 8))
-        time_steps = np.arange(inputs.shape[0]) * task.dt
-
-        # First subplot: Rule cue and Vertical cue
-        ax = axes[0]
-        ax.plot(time_steps, inputs[:, 2], label='Rule Cue', alpha=0.7, linewidth=2)
-        ax.plot(time_steps, inputs[:, 3], label='Vertical Cue', alpha=0.7, linewidth=2)
-        ax.set_ylabel('Input Value')
-        ax.set_title(f"InstructedTimingTask: {rule_name}, t_s={t_s:.0f}ms, t_m={t_m:.0f}ms, stim_dir={stim_direction:+d}, Dec={decision:+d}")
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-        # Second subplot: Center fixation, Horizontal cue, and Reward cue
-        ax = axes[1]
-        ax.plot(time_steps, inputs[:, 0], label='Center Fixation', alpha=0.7, linewidth=2)
-        ax.plot(time_steps, inputs[:, 1], label='Horizontal Cue', alpha=0.7, linewidth=2)
-        ax.plot(time_steps, inputs[:, 4], label='Reward Cue', alpha=0.7, linewidth=2)
-        ax.set_ylabel('Input Value')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-        # Third subplot: Vertical eye position (rule report output)
-        ax = axes[2]
-        for i in range(len(time_steps)):
-            if loss_mask[i, 1] == 0:
-                ax.axvspan(time_steps[i], time_steps[i] + task.dt, color='gray', alpha=0.3, linewidth=0)
-        ax.plot(time_steps, targets[:, 1], 'b-', label='Vertical Eye Position (target)', linewidth=2)
-        if eval_mask[:, 1].any():
-            eval_idx = np.where(eval_mask[:, 1] > 0)[0]
-            ax.axvspan(time_steps[eval_idx[0]], time_steps[eval_idx[-1]], color='green', alpha=0.15, linewidth=0, label='Eval region')
-        ax.set_ylabel('Target Value')
-        ax.set_title('Vertical Eye Position / Rule Report (gray = not trained, green = evaluated)')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-        # Fourth subplot: Horizontal eye position (decision output)
-        ax = axes[3]
-        for i in range(len(time_steps)):
-            if loss_mask[i, 0] == 0:
-                ax.axvspan(time_steps[i], time_steps[i] + task.dt, color='gray', alpha=0.3, linewidth=0)
-        ax.plot(time_steps, targets[:, 0], 'b-', label='Horizontal Eye Position (target)', linewidth=2)
-        if eval_mask[:, 0].any():
-            eval_idx = np.where(eval_mask[:, 0] > 0)[0]
-            ax.axvspan(time_steps[eval_idx[0]], time_steps[eval_idx[-1]], color='red', alpha=0.15, linewidth=0, label='Eval region')
-        ax.set_ylabel('Target Value')
-        ax.set_xlabel('Time (ms)')
-        ax.set_title('Horizontal Eye Position / Timing Decision (gray = not trained, red = evaluated)')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-        plt.tight_layout()
+        # Use task's create_trial_figure method
+        # Since outputs = targets for demo (no model), we pass targets as both
+        fig = task.create_trial_figure(
+            inputs=inputs,
+            outputs=targets,
+            targets=targets,
+            eval_mask=eval_mask,
+            trial_idx=0,
+            batch=batch,
+            batch_idx=0,
+            loss_mask=loss_mask
+        )
 
     plt.show()
 
@@ -138,106 +91,47 @@ def demo_sequence_instructed_task(num_sequences: int, discrete: bool):
         num_trials = len(batch)
 
         # Extract metadata from first trial to build sequence structure
-        rules = np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)])
-        has_instruction = np.array([batch[i]['metadata']['has_instruction'][0] for i in range(num_trials)])
-        block_ids = np.array([batch[i]['metadata']['block_id'][0] for i in range(num_trials)])
-        is_switch = np.array([batch[i]['metadata']['is_switch'][0] for i in range(num_trials)])
-        trial_lengths = np.array([batch[i]['trial_lengths'][0].item() for i in range(num_trials)])
+        batch_metadata = {
+            'rule': np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)]),
+            'has_instruction': np.array([batch[i]['metadata']['has_instruction'][0] for i in range(num_trials)]),
+            't_s': np.array([batch[i]['metadata']['t_s'][0] for i in range(num_trials)]),
+            't_m': np.array([batch[i]['metadata']['t_m'][0] for i in range(num_trials)]),
+            'stim_direction': np.array([batch[i]['metadata']['stim_direction'][0] for i in range(num_trials)]),
+        }
 
         # State for interactive navigation
-        state = {'current_trial': 0}
-
-        # Create figure
-        fig = plt.figure(figsize=(16, 8))
-        fig.suptitle('Use ← → arrow keys to navigate trials', fontsize=12, y=0.995)
+        state = {'current_trial': 0, 'fig': None}
 
         def plot_trial(trial_idx):
             """Plot a single trial with detailed information."""
-            fig.clear()
-            gs = fig.add_gridspec(4, 1, hspace=0.35, top=0.96, height_ratios=[1, 3, 3, 3])
-
-            # Subplot 1: Block structure overview with current trial highlighted
-            ax1 = fig.add_subplot(gs[0])
-            trial_indices = np.arange(num_trials)
-            colors = ['blue' if r == 1 else 'red' for r in rules]
-            ax1.scatter(trial_indices, rules, c=colors, s=100, alpha=0.6, edgecolors='black')
-            for i, instr in enumerate(has_instruction):
-                if instr:
-                    marker = 'o'
-                    ax1.scatter(i, rules[i], marker=marker, s=150, c=colors[i], edgecolors='black', linewidths=2)
-                else:
-                    marker = 'x'
-                    ax1.scatter(i, rules[i], marker=marker, s=150, c=colors[i], linewidths=2)
-
-            # Highlight current trial
-            ax1.scatter(trial_idx, rules[trial_idx], s=400, facecolors='none',
-                       edgecolors='lime', linewidths=3, zorder=10)
-
-            ax1.set_ylabel('Rule')
-            ax1.set_yticks([-1, 1])
-            ax1.set_yticklabels(['Rule 2', 'Rule 1'])
-            ax1.set_title('Sequence Overview (○=instructed, ×=uninstructed, green circle=current)')
-            ax1.grid(True, alpha=0.3)
-            ax1.set_xlim(-1, num_trials)
-            ax1.set_ylim(-2.0, 2.0)
-
-            # Extract trial-specific data from batch list structure
+            # Extract trial-specific data
             trial_inputs = batch[trial_idx]['inputs'][0].numpy()  # [T, 5]
             trial_targets = batch[trial_idx]['targets'][0].numpy()  # [T, 2]
             trial_loss_mask = batch[trial_idx]['loss_mask'][0].numpy()  # [T, 2]
             trial_eval_mask = batch[trial_idx]['eval_mask'][0].numpy()  # [T, 2]
 
-            T = trial_inputs.shape[0]
-            time_steps = np.arange(T) * task.dt
-            trial_len = trial_lengths[trial_idx]
+            # Use task's create_trial_figure with block overview (reuse existing figure)
+            fig = task.create_trial_figure(
+                inputs=trial_inputs,
+                outputs=trial_targets,  # No model, so outputs = targets
+                targets=trial_targets,
+                eval_mask=trial_eval_mask,
+                trial_idx=trial_idx,
+                batch=batch,
+                batch_idx=0,
+                loss_mask=trial_loss_mask,
+                block_overview=True,
+                batch_metadata=batch_metadata,
+                fig=state['fig']  # Reuse existing figure
+            )
 
-            # Subplot 2: Horizontal inputs (center fixation, horizontal cue, reward)
-            ax2 = fig.add_subplot(gs[1])
-            ax2.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax2.plot(time_steps, trial_inputs[:, 0], 'b-', linewidth=2, label='Center Fixation', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 1], 'orange', linewidth=2, label='Horizontal Cue', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 4], 'cyan', linewidth=1.5, label='Reward Cue', alpha=0.6)
+            fig.suptitle('Use ← → arrow keys to navigate trials', fontsize=12, y=0.995)
 
-            ax2.set_ylabel('Input Value')
-            ax2.set_title(f'Trial {trial_idx} - Horizontal Inputs')
-            ax2.legend(loc='upper right', fontsize=8, ncol=4)
-            ax2.grid(True, alpha=0.3)
+            # Connect keyboard handler on first call
+            if state['fig'] is None:
+                fig.canvas.mpl_connect('key_press_event', on_key)
 
-            # Subplot 3: Rule cue and Vertical cue
-            ax3 = fig.add_subplot(gs[2])
-            ax3.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax3.plot(time_steps, trial_inputs[:, 2], 'purple', linewidth=2, label='Rule Cue', alpha=0.7)
-            ax3.plot(time_steps, trial_inputs[:, 3], 'magenta', linewidth=1.5, label='Vertical Cue', alpha=0.6)
-
-            ax3.set_ylabel('Input Value')
-            ax3.set_title('Vertical & Rule Inputs')
-            ax3.legend(loc='upper right', fontsize=8, ncol=3)
-            ax3.grid(True, alpha=0.3)
-
-            # Subplot 4: Targets with eval mask
-            ax4 = fig.add_subplot(gs[3])
-
-            # Show loss mask regions and eval mask regions
-            for t in range(len(time_steps)):
-                # Check if all masks are zero (padding)
-                if trial_loss_mask[t, 0] == 0 and trial_loss_mask[t, 1] == 0:
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='darkgray', alpha=0.4, linewidth=0)
-                # Show eval regions
-                if trial_eval_mask[t, 1] > 0:  # Vertical eval (rule)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='green', alpha=0.15, linewidth=0)
-                if trial_eval_mask[t, 0] > 0:  # Horizontal eval (decision)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='red', alpha=0.15, linewidth=0)
-
-            ax4.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5)
-            ax4.plot(time_steps, trial_targets[:, 1], 'g-', linewidth=2.5, label='Vertical Eye Position (rule)', alpha=0.8)
-            ax4.plot(time_steps, trial_targets[:, 0], 'r-', linewidth=2.5, label='Horizontal Eye Position (decision)', alpha=0.8)
-
-            ax4.set_ylabel('Target Value')
-            ax4.set_xlabel('Time (ms)')
-            ax4.set_title('Targets (dark gray=padding, green=rule eval, red=decision eval)')
-            ax4.legend(loc='upper right', fontsize=8, ncol=3)
-            ax4.grid(True, alpha=0.3)
-
+            state['fig'] = fig
             fig.canvas.draw()
 
         def on_key(event):
@@ -248,8 +142,6 @@ def demo_sequence_instructed_task(num_sequences: int, discrete: bool):
             elif event.key == 'left':
                 state['current_trial'] = max(state['current_trial'] - 1, 0)
                 plot_trial(state['current_trial'])
-
-        fig.canvas.mpl_connect('key_press_event', on_key)
 
         # Initial plot
         plot_trial(0)
@@ -288,100 +180,46 @@ def demo_inferred_task(num_sequences: int, discrete: bool):
         num_trials = len(batch)
 
         # Extract metadata from trials
-        rules = np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)])
-        is_switch = np.array([batch[i]['metadata']['is_switch'][0] for i in range(num_trials)])
-        trial_lengths = np.array([batch[i]['trial_lengths'][0].item() for i in range(num_trials)])
+        batch_metadata = {
+            'rule': np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)]),
+            't_s': np.array([batch[i]['metadata']['t_s'][0] for i in range(num_trials)]),
+            't_m': np.array([batch[i]['metadata']['t_m'][0] for i in range(num_trials)]),
+            'stim_direction': np.array([batch[i]['metadata']['stim_direction'][0] for i in range(num_trials)]),
+        }
 
         # State for interactive navigation
-        state = {'current_trial': 0}
-
-        # Create figure
-        fig = plt.figure(figsize=(16, 8))
-        fig.suptitle('Use ← → arrow keys to navigate trials', fontsize=12, y=0.995)
+        state = {'current_trial': 0, 'fig': None}
 
         def plot_trial(trial_idx):
             """Plot a single trial with detailed information."""
-            fig.clear()
-            gs = fig.add_gridspec(4, 1, hspace=0.35, top=0.96, height_ratios=[1, 3, 3, 3])
-
-            # Subplot 1: Block structure overview with current trial highlighted
-            ax1 = fig.add_subplot(gs[0])
-            trial_indices = np.arange(num_trials)
-            colors = ['blue' if r == 1 else 'red' for r in rules]
-            # Mark switches with different markers
-            for i, switch in enumerate(is_switch):
-                marker = 'x' if switch else 'o'
-                ax1.scatter(i, rules[i], c=colors[i], s=150, marker=marker, alpha=0.6, linewidths=2)
-
-            # Highlight current trial
-            ax1.scatter(trial_idx, rules[trial_idx], s=400, facecolors='none',
-                       edgecolors='lime', linewidths=3, zorder=10)
-
-            ax1.set_ylabel('Rule')
-            ax1.set_yticks([-1, 1])
-            ax1.set_yticklabels(['Rule 2', 'Rule 1'])
-            ax1.set_title('Sequence Overview (×=switch, ○=stay, green circle=current)')
-            ax1.grid(True, alpha=0.3)
-            ax1.set_xlim(-1, num_trials)
-            ax1.set_ylim(-2.0, 2.0)
-
-            # Extract trial-specific data from batch list structure
+            # Extract trial-specific data
             trial_inputs = batch[trial_idx]['inputs'][0].numpy()  # [T, 5]
             trial_targets = batch[trial_idx]['targets'][0].numpy()  # [T, 2]
             trial_loss_mask = batch[trial_idx]['loss_mask'][0].numpy()  # [T, 2]
             trial_eval_mask = batch[trial_idx]['eval_mask'][0].numpy()  # [T, 2]
 
-            T = trial_inputs.shape[0]
-            time_steps = np.arange(T) * task.dt
-            trial_len = trial_lengths[trial_idx]
+            # Use task's create_trial_figure with block overview (reuse existing figure)
+            fig = task.create_trial_figure(
+                inputs=trial_inputs,
+                outputs=trial_targets,  # No model, so outputs = targets
+                targets=trial_targets,
+                eval_mask=trial_eval_mask,
+                trial_idx=trial_idx,
+                batch=batch,
+                batch_idx=0,
+                loss_mask=trial_loss_mask,
+                block_overview=True,
+                batch_metadata=batch_metadata,
+                fig=state['fig']  # Reuse existing figure
+            )
 
-            # Subplot 2: Inputs (center fixation, horizontal cue, reward)
-            ax2 = fig.add_subplot(gs[1])
-            ax2.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax2.plot(time_steps, trial_inputs[:, 0], 'b-', linewidth=2, label='Center Fixation', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 1], 'orange', linewidth=2, label='Horizontal Cue', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 4], 'cyan', linewidth=1.5, label='Reward', alpha=0.6)
+            fig.suptitle('Use ← → arrow keys to navigate trials', fontsize=12, y=0.995)
 
-            ax2.set_ylabel('Input Value')
-            ax2.set_title(f'Trial {trial_idx} - Inputs (InferredTask: infer rule from reward)')
-            ax2.legend(loc='upper right', fontsize=8, ncol=4)
-            ax2.grid(True, alpha=0.3)
+            # Connect keyboard handler on first call
+            if state['fig'] is None:
+                fig.canvas.mpl_connect('key_press_event', on_key)
 
-            # Subplot 3: Vertical cue and Rule cue (always 0 for inferred)
-            ax3 = fig.add_subplot(gs[2])
-            ax3.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax3.plot(time_steps, trial_inputs[:, 2], 'purple', linewidth=2, label='Rule Cue (always 0)', alpha=0.7)
-            ax3.plot(time_steps, trial_inputs[:, 3], 'magenta', linewidth=1.5, label='Vertical Cue', alpha=0.6)
-
-            ax3.set_ylabel('Input Value')
-            ax3.set_title('Vertical & Rule Inputs (Rule inferred from reward)')
-            ax3.legend(loc='upper right', fontsize=8, ncol=3)
-            ax3.grid(True, alpha=0.3)
-
-            # Subplot 4: Targets with eval mask
-            ax4 = fig.add_subplot(gs[3])
-
-            # Show loss mask regions and eval mask regions
-            for t in range(len(time_steps)):
-                # Check if all masks are zero (padding)
-                if trial_loss_mask[t, 0] == 0 and trial_loss_mask[t, 1] == 0:
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='darkgray', alpha=0.4, linewidth=0)
-                # Show eval regions
-                if trial_eval_mask[t, 1] > 0:  # Vertical eval (rule)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='green', alpha=0.15, linewidth=0)
-                if trial_eval_mask[t, 0] > 0:  # Horizontal eval (decision)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='red', alpha=0.15, linewidth=0)
-
-            ax4.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5)
-            ax4.plot(time_steps, trial_targets[:, 1], 'g-', linewidth=2.5, label='Vertical Eye Position (rule)', alpha=0.8)
-            ax4.plot(time_steps, trial_targets[:, 0], 'r-', linewidth=2.5, label='Horizontal Eye Position (decision)', alpha=0.8)
-
-            ax4.set_ylabel('Target Value')
-            ax4.set_xlabel('Time (ms)')
-            ax4.set_title('Targets (dark gray=padding, green=rule eval, red=decision eval)')
-            ax4.legend(loc='upper right', fontsize=8, ncol=3)
-            ax4.grid(True, alpha=0.3)
-
+            state['fig'] = fig
             fig.canvas.draw()
 
         def on_key(event):
@@ -392,8 +230,6 @@ def demo_inferred_task(num_sequences: int, discrete: bool):
             elif event.key == 'left':
                 state['current_trial'] = max(state['current_trial'] - 1, 0)
                 plot_trial(state['current_trial'])
-
-        fig.canvas.mpl_connect('key_press_event', on_key)
 
         # Initial plot
         plot_trial(0)
@@ -437,110 +273,48 @@ def demo_transition_task(num_sequences: int, discrete: bool, rule_cue_prob: floa
         num_trials = len(batch)
 
         # Extract metadata from trials
-        rules = np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)])
-        has_instruction = np.array([batch[i]['metadata']['has_instruction'][0] for i in range(num_trials)])
-        is_switch = np.array([batch[i]['metadata']['is_switch'][0] for i in range(num_trials)])
-        trial_lengths = np.array([batch[i]['trial_lengths'][0].item() for i in range(num_trials)])
+        batch_metadata = {
+            'rule': np.array([batch[i]['metadata']['rule'][0] for i in range(num_trials)]),
+            'has_instruction': np.array([batch[i]['metadata']['has_instruction'][0] for i in range(num_trials)]),
+            't_s': np.array([batch[i]['metadata']['t_s'][0] for i in range(num_trials)]),
+            't_m': np.array([batch[i]['metadata']['t_m'][0] for i in range(num_trials)]),
+            'stim_direction': np.array([batch[i]['metadata']['stim_direction'][0] for i in range(num_trials)]),
+        }
 
         # State for interactive navigation
-        state = {'current_trial': 0}
-
-        # Create figure
-        fig = plt.figure(figsize=(16, 8))
-        fig.suptitle(f'TransitionTask (rule_cue_prob={rule_cue_prob:.2f}) - Use ← → arrow keys to navigate trials',
-                     fontsize=12, y=0.995)
+        state = {'current_trial': 0, 'fig': None}
 
         def plot_trial(trial_idx):
             """Plot a single trial with detailed information."""
-            fig.clear()
-            gs = fig.add_gridspec(4, 1, hspace=0.35, top=0.96, height_ratios=[1, 3, 3, 3])
-
-            # Subplot 1: Block structure overview with current trial highlighted
-            ax1 = fig.add_subplot(gs[0])
-            trial_indices = np.arange(num_trials)
-            colors = ['blue' if r == 1 else 'red' for r in rules]
-
-            # Mark instructed vs uninstructed, and switches
-            for i in range(num_trials):
-                if has_instruction[i]:
-                    marker = 'o'
-                    size = 150
-                    alpha = 0.6
-                else:
-                    marker = 'x'
-                    size = 150
-                    alpha = 0.6
-                ax1.scatter(i, rules[i], c=colors[i], s=size, marker=marker, alpha=alpha, linewidths=2, edgecolors='black')
-
-            # Highlight current trial
-            ax1.scatter(trial_idx, rules[trial_idx], s=400, facecolors='none',
-                       edgecolors='lime', linewidths=3, zorder=10)
-
-            ax1.set_ylabel('Rule')
-            ax1.set_yticks([-1, 1])
-            ax1.set_yticklabels(['Rule 2', 'Rule 1'])
-            ax1.set_title(f'Sequence Overview (○=instructed, ×=uninstructed, green circle=current)')
-            ax1.grid(True, alpha=0.3)
-            ax1.set_xlim(-1, num_trials)
-            ax1.set_ylim(-2.0, 2.0)
-
-            # Extract trial-specific data from batch list structure
+            # Extract trial-specific data
             trial_inputs = batch[trial_idx]['inputs'][0].numpy()  # [T, 5]
             trial_targets = batch[trial_idx]['targets'][0].numpy()  # [T, 2]
             trial_loss_mask = batch[trial_idx]['loss_mask'][0].numpy()  # [T, 2]
             trial_eval_mask = batch[trial_idx]['eval_mask'][0].numpy()  # [T, 2]
 
-            T = trial_inputs.shape[0]
-            time_steps = np.arange(T) * task.dt
-            trial_len = trial_lengths[trial_idx]
+            # Use task's create_trial_figure with block overview (reuse existing figure)
+            fig = task.create_trial_figure(
+                inputs=trial_inputs,
+                outputs=trial_targets,  # No model, so outputs = targets
+                targets=trial_targets,
+                eval_mask=trial_eval_mask,
+                trial_idx=trial_idx,
+                batch=batch,
+                batch_idx=0,
+                loss_mask=trial_loss_mask,
+                block_overview=True,
+                batch_metadata=batch_metadata,
+                fig=state['fig']  # Reuse existing figure
+            )
 
-            # Subplot 2: Horizontal inputs (center fixation, horizontal cue, reward)
-            ax2 = fig.add_subplot(gs[1])
-            ax2.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax2.plot(time_steps, trial_inputs[:, 0], 'b-', linewidth=2, label='Center Fixation', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 1], 'orange', linewidth=2, label='Horizontal Cue', alpha=0.7)
-            ax2.plot(time_steps, trial_inputs[:, 4], 'cyan', linewidth=1.5, label='Reward Cue', alpha=0.6)
+            fig.suptitle(f'TransitionTask (rule_cue_prob={rule_cue_prob:.2f}) - Use ← → arrow keys to navigate trials',
+                       fontsize=12, y=0.995)
 
-            ax2.set_ylabel('Input Value')
-            ax2.set_title(f'Trial {trial_idx} - Horizontal Inputs (has_instruction={has_instruction[trial_idx]})')
-            ax2.legend(loc='upper right', fontsize=8, ncol=4)
-            ax2.grid(True, alpha=0.3)
+            # Connect keyboard handler on first call
+            if state['fig'] is None:
+                fig.canvas.mpl_connect('key_press_event', on_key)
 
-            # Subplot 3: Rule cue and Vertical cue
-            ax3 = fig.add_subplot(gs[2])
-            ax3.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5, label='Trial end')
-            ax3.plot(time_steps, trial_inputs[:, 2], 'purple', linewidth=2, label='Rule Cue', alpha=0.7)
-            ax3.plot(time_steps, trial_inputs[:, 3], 'magenta', linewidth=1.5, label='Vertical Cue', alpha=0.6)
-
-            ax3.set_ylabel('Input Value')
-            ax3.set_title('Vertical & Rule Inputs')
-            ax3.legend(loc='upper right', fontsize=8, ncol=3)
-            ax3.grid(True, alpha=0.3)
-
-            # Subplot 4: Targets with eval mask
-            ax4 = fig.add_subplot(gs[3])
-
-            # Show loss mask regions and eval mask regions
-            for t in range(len(time_steps)):
-                # Check if all masks are zero (padding)
-                if trial_loss_mask[t, 0] == 0 and trial_loss_mask[t, 1] == 0:
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='darkgray', alpha=0.4, linewidth=0)
-                # Show eval regions
-                if trial_eval_mask[t, 1] > 0:  # Vertical eval (rule)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='green', alpha=0.15, linewidth=0)
-                if trial_eval_mask[t, 0] > 0:  # Horizontal eval (decision)
-                    ax4.axvspan(time_steps[t], time_steps[t] + task.dt, color='red', alpha=0.15, linewidth=0)
-
-            ax4.axvline(trial_len * task.dt, color='red', linestyle=':', linewidth=2, alpha=0.5)
-            ax4.plot(time_steps, trial_targets[:, 1], 'g-', linewidth=2.5, label='Vertical Eye Position (rule)', alpha=0.8)
-            ax4.plot(time_steps, trial_targets[:, 0], 'r-', linewidth=2.5, label='Horizontal Eye Position (decision)', alpha=0.8)
-
-            ax4.set_ylabel('Target Value')
-            ax4.set_xlabel('Time (ms)')
-            ax4.set_title('Targets (dark gray=padding, green=rule eval, red=decision eval)')
-            ax4.legend(loc='upper right', fontsize=8, ncol=3)
-            ax4.grid(True, alpha=0.3)
-
+            state['fig'] = fig
             fig.canvas.draw()
 
         def on_key(event):
@@ -551,8 +325,6 @@ def demo_transition_task(num_sequences: int, discrete: bool, rule_cue_prob: floa
             elif event.key == 'left':
                 state['current_trial'] = max(state['current_trial'] - 1, 0)
                 plot_trial(state['current_trial'])
-
-        fig.canvas.mpl_connect('key_press_event', on_key)
 
         # Initial plot
         plot_trial(0)
@@ -599,8 +371,8 @@ def demo_rnn_processing():
 
     # Use trainer's forward pass with return_hidden=True to get everything in one pass
     with torch.no_grad():
-        (all_outputs, all_inputs_list, all_targets_list, all_masks, all_hidden,
-         iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets) = \
+        (all_outputs, all_inputs_list, all_targets_list, all_eval_masks, all_loss_masks, all_hidden,
+         iti_regions, trial_boundaries, all_iti_inputs, all_iti_targets, all_iti_outputs) = \
             trainer._forward_pass(batch, task, include_iti=True, return_hidden=True)
 
     # Interleave trial and ITI data for plotting

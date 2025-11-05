@@ -36,6 +36,7 @@ class BaseTask:
         rule_report_period: float = 700.0,
         response_period: float = 700.0,
         grace_period: float = 400.0,
+        fixation_grace_period: float = 200.0,
         input_noise_std: float = 0.05,
         w_m: float = 0.1,
         discrete_eval: bool = False,
@@ -49,28 +50,29 @@ class BaseTask:
     ):
         """Initialize base task parameters."""
         # Core timing parameters
-        self.dt = dt
-        self.pulse_width = pulse_width
-        self.decision_threshold = decision_threshold
-        self.delta_t_range = (delta_t_min, delta_t_max)
-        self.input_noise_std = input_noise_std
-        self.w_m = w_m
-        self.discrete_eval = discrete_eval
-        self.eval_intervals = np.array([530, 610, 690, 770, 850, 930, 1010, 1090, 1170])
+        self.dt = dt  # Timestep size in milliseconds
+        self.pulse_width = pulse_width  # Duration of timing pulse flashes in ms
+        self.decision_threshold = decision_threshold  # Time boundary for short/long decisions (850ms)
+        self.delta_t_range = (delta_t_min, delta_t_max)  # Range of stimulus intervals to sample from
+        self.input_noise_std = input_noise_std  # Std dev of Gaussian noise added to inputs
+        self.w_m = w_m  # Weber fraction for scalar timing noise (measured time variance)
+        self.discrete_eval = discrete_eval  # If True, sample from discrete intervals; if False, continuous uniform
+        self.eval_intervals = np.array([530, 610, 690, 770, 850, 930, 1010, 1090, 1170])  # Discrete eval intervals
 
         # Trial structure parameters
-        self.fixation_delay_range = (fixation_delay_min, fixation_delay_max)
-        self.rule_report_period = rule_report_period
-        self.response_period = response_period
-        self.grace_period = grace_period
+        self.fixation_delay_range = (fixation_delay_min, fixation_delay_max)  # Variable fixation delay range
+        self.rule_report_period = rule_report_period  # Duration of rule report response period
+        self.response_period = response_period  # Duration of decision response period
+        self.grace_period = grace_period  # Grace period at start of response (no loss penalty to avoid sharp changes in target)
+        self.fixation_grace_period = fixation_grace_period  # Grace period after rule report when returning to fixation
 
         # Sequence parameters
-        self.inter_trial_interval = inter_trial_interval
-        self.reward_duration = reward_duration
-        self.block_min = block_min
-        self.block_mean = block_mean
-        self.rule_cue_prob = rule_cue_prob
-        self.trials_per_sequence = trials_per_sequence
+        self.inter_trial_interval = inter_trial_interval  # Duration between trials in ms
+        self.reward_duration = reward_duration  # Duration of reward signal during ITI
+        self.block_min = block_min  # Minimum block length (trials)
+        self.block_mean = block_mean  # Mean of geometric distribution for additional block trials
+        self.rule_cue_prob = rule_cue_prob  # Probability of showing rule cue per trial
+        self.trials_per_sequence = trials_per_sequence  # Number of trials per sequence
 
         # Task name for plots (can be overridden in subclasses)
         self.name = self.__class__.__name__.replace("Task", " Task")
@@ -151,6 +153,7 @@ class BaseTask:
         t_inter = int(t_m / self.dt)
         t_response = int(self.response_period / self.dt)
         t_grace = int(self.grace_period / self.dt)  # grace period before evaluating rule/decision responses
+        t_fixation_grace = int(self.fixation_grace_period / self.dt)  # grace period when returning to fixation
 
         # Total trial length
         total_t = (t_initial_fix_rule + t_rule_report +
@@ -181,6 +184,9 @@ class BaseTask:
         eval_mask[rule_eval_start:rule_report_end, 1] = 1  # Vertical eval
         loss_mask[rule_report_start:rule_eval_start, 1] = 0.0  # No loss during grace period
         loss_mask[rule_eval_start:rule_report_end, 1] = 5.0  # 5x weight during rule evaluation
+        # Grace period after rule report when returning to fixation
+        fixation_grace_end = min(rule_report_end + t_fixation_grace, total_t)
+        loss_mask[rule_report_end:fixation_grace_end, 1] = 0.0  # No loss during return to fixation
 
         # Another fixation delay, timing flashes, and decision response
         timing_ready = rule_report_end + t_initial_fix_timing
@@ -423,7 +429,10 @@ class BaseTask:
         batch_idx: int = 0,
         iti_inputs: Optional[np.ndarray] = None,
         iti_outputs: Optional[np.ndarray] = None,
-        loss_mask: Optional[np.ndarray] = None
+        loss_mask: Optional[np.ndarray] = None,
+        block_overview: bool = False,
+        batch_metadata: Optional[dict] = None,
+        fig: Optional[plt.Figure] = None
     ) -> plt.Figure:
         """Create standard trial visualization. Can be overridden for custom figures.
 
@@ -438,49 +447,131 @@ class BaseTask:
             iti_inputs: Optional [iti_len, 5] ITI input array
             iti_outputs: Optional [iti_len, 2] ITI output array
             loss_mask: Optional [T, 2] loss mask array
+            block_overview: Whether to include block structure overview subplot
+            batch_metadata: Full batch metadata (required if block_overview=True)
+            fig: Optional existing figure to reuse (will be cleared)
         """
-        fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+        # Determine number of subplots and create or reuse figure
+        if block_overview:
+            if fig is None:
+                fig = plt.figure(figsize=(14, 7))
+            else:
+                fig.clear()
 
-        # Get trial length
+            axes = fig.subplots(3, 1, gridspec_kw={'height_ratios': [0.3, 1, 1]})
+            ax_block = axes[0]
+            ax_inputs = axes[1]
+            ax_outputs = axes[2]
+        else:
+            if fig is None:
+                fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+            else:
+                fig.clear()
+                axes = fig.subplots(2, 1, sharex=True)
+
+            ax_inputs = axes[0]
+            ax_outputs = axes[1]
+
+        # Get trial length and metadata
         if isinstance(batch, list):
             # For sequence tasks: trial_idx is which trial in sequence, batch_idx is batch element
-            T = batch[trial_idx]['trial_lengths'][batch_idx].item()
+            trial_length = batch[trial_idx]['trial_lengths'][batch_idx].item()
             metadata = {k: v[batch_idx] for k, v in batch[trial_idx]['metadata'].items()}
         else:
             # For single-trial tasks: trial_idx is batch element
-            T = batch['metadata']['trial_length'][trial_idx]
+            trial_length = batch['metadata']['trial_length'][trial_idx]
             metadata = {k: v[trial_idx] for k, v in batch['metadata'].items()}
 
-        # Concatenate ITI data if provided
+        # Handle ITI - either provided separately or already concatenated
         iti_boundary = None
+
         if iti_inputs is not None and iti_outputs is not None:
-            iti_boundary = T
+            # ITI provided separately - concatenate it
+            iti_boundary = trial_length
             iti_len = iti_inputs.shape[0]
 
             # Concatenate inputs
-            inputs = np.concatenate([inputs[:T], iti_inputs], axis=0)
-            outputs = np.concatenate([outputs[:T], iti_outputs], axis=0)
+            inputs = np.concatenate([inputs[:trial_length], iti_inputs], axis=0)
+            outputs = np.concatenate([outputs[:trial_length], iti_outputs], axis=0)
 
             # Extend targets and eval_mask with zeros for ITI
-            targets = np.concatenate([targets[:T], np.zeros((iti_len, 2))], axis=0)
-            eval_mask = np.concatenate([eval_mask[:T], np.zeros((iti_len, 2))], axis=0)
+            targets = np.concatenate([targets[:trial_length], np.zeros((iti_len, 2))], axis=0)
+            eval_mask = np.concatenate([eval_mask[:trial_length], np.zeros((iti_len, 2))], axis=0)
 
             # Extend loss_mask with zeros for ITI if provided
             if loss_mask is not None:
-                loss_mask = np.concatenate([loss_mask[:T], np.zeros((iti_len, 2))], axis=0)
+                loss_mask = np.concatenate([loss_mask[:trial_length], np.zeros((iti_len, 2))], axis=0)
 
-            T = T + iti_len
+            T = trial_length + iti_len
+        else:
+            # Check if ITI is already concatenated (from generate_data)
+            # For sequence tasks, metadata includes 'iti_start' and 'iti_length'
+            if 'iti_start' in metadata and inputs.shape[0] > trial_length:
+                # ITI already included - just mark the boundary
+                iti_boundary = trial_length
+                T = inputs.shape[0]
+            else:
+                # No ITI - just use trial data
+                T = trial_length
 
         time_ms = np.arange(T) * self.dt
 
-        # Top subplot: Input channels (inputs is [T, 5])
-        ax = axes[0]
-        ax.plot(time_ms, inputs[:T, 0], label='Center fixation', linewidth=2)
-        ax.plot(time_ms, inputs[:T, 1], label='Horizontal cue', linewidth=2)
-        ax.plot(time_ms, inputs[:T, 2], label='Rule cue', linewidth=2, alpha=0.6)
-        ax.plot(time_ms, inputs[:T, 3], label='Vertical cue', linewidth=2, alpha=0.6)
-        ax.plot(time_ms, inputs[:T, 4], label='Reward cue', linewidth=2, alpha=0.6)
-        ax.set_ylabel('Input value')
+        # Block overview subplot (if requested)
+        if block_overview:
+            if batch_metadata is None:
+                raise ValueError("batch_metadata must be provided when block_overview=True")
+
+            # Determine total number of trials
+            if isinstance(batch, list):
+                num_trials = len(batch)
+            else:
+                num_trials = len(batch['trial_lengths'])
+
+            # Extract rules and instruction info
+            rules = batch_metadata.get('rule', np.ones(num_trials))
+            has_instruction = batch_metadata.get('has_instruction', None)
+
+            trial_indices = np.arange(num_trials)
+            colors = ['C0' if r == 1 else 'C1' for r in rules]
+
+            # Plot all trials with appropriate markers
+            if has_instruction is not None:
+                for j in range(num_trials):
+                    if has_instruction[j]:
+                        ax_block.scatter(j, rules[j], c=colors[j], s=100, marker='o',
+                                       edgecolors='black', linewidths=1.5, alpha=0.6)
+                    else:
+                        ax_block.scatter(j, rules[j], c=colors[j], s=100, marker='x',
+                                       linewidths=2, alpha=0.6)
+            else:
+                ax_block.scatter(trial_indices, rules, c=colors, s=100, alpha=0.6,
+                               edgecolors='black', linewidths=1)
+
+            # Highlight current trial
+            current_trial = trial_idx
+            ax_block.scatter(current_trial, rules[current_trial], s=400, facecolors='none',
+                           edgecolors='lime', linewidths=3, zorder=10)
+
+            ax_block.set_ylabel('Rule', fontsize=10)
+            ax_block.set_yticks([-1, 1])
+            ax_block.set_yticklabels(['Rule 2', 'Rule 1'], fontsize=9)
+            if has_instruction is not None:
+                ax_block.set_title(f'Batch Overview (○=instructed, ×=uninstructed, trial {trial_idx+1}/{num_trials} highlighted)',
+                                 fontsize=10)
+            else:
+                ax_block.set_title(f'Batch Overview (trial {trial_idx+1}/{num_trials} highlighted)', fontsize=10)
+            ax_block.grid(True, alpha=0.3, axis='y')
+            ax_block.set_xlim(-1, num_trials)
+            ax_block.set_ylim(-1.5, 1.5)
+            ax_block.set_xticks([])
+
+        # Input channels subplot
+        ax_inputs.plot(time_ms, inputs[:T, 0], label='Center fixation', linewidth=2)
+        ax_inputs.plot(time_ms, inputs[:T, 1], label='Horizontal cue', linewidth=2)
+        ax_inputs.plot(time_ms, inputs[:T, 2], label='Rule cue', linewidth=2, alpha=0.6)
+        ax_inputs.plot(time_ms, inputs[:T, 3], label='Vertical cue', linewidth=2, alpha=0.6)
+        ax_inputs.plot(time_ms, inputs[:T, 4], label='Reward cue', linewidth=2, alpha=0.6)
+        ax_inputs.set_ylabel('Input value')
 
         # Build title with metadata
         title_parts = [f'Trial {trial_idx+1}: {self.name}']
@@ -492,12 +583,12 @@ class BaseTask:
         if 'stim_direction' in metadata:
             title_parts.append(f"stim_dir={metadata['stim_direction']:+.0f}")
 
-        ax.set_title(', '.join(title_parts))
-        ax.legend(loc='upper right', fontsize=8)
-        ax.grid(True, alpha=0.3)
+        ax_inputs.set_title(', '.join(title_parts))
+        ax_inputs.legend(loc='upper right', fontsize=8)
+        ax_inputs.grid(True, alpha=0.3)
 
-        # Bottom subplot: Outputs + targets (outputs/targets are [T, 2])
-        ax = axes[1]
+        # Outputs subplot
+        ax = ax_outputs
 
         # Shade regions where loss_mask is 0 (grace periods) - add first so it's in background
         if loss_mask is not None:
@@ -511,7 +602,10 @@ class BaseTask:
                     ends = np.where(transitions == -1)[0]
 
                     for start, end in zip(starts, ends):
-                        ax.axvspan(time_ms[start], time_ms[end-1], alpha=0.15, color='gray', zorder=0)
+                        # Shade from start of first zero timestep to end of last zero timestep
+                        # time_ms[end] is the start of the next timestep (end of the zero region)
+                        end_time = time_ms[end] if end < len(time_ms) else time_ms[-1] + self.dt
+                        ax.axvspan(time_ms[start], end_time, alpha=0.15, color='gray', zorder=0)
 
         ax.plot(time_ms, outputs[:T, 0], label='Horizontal output', linewidth=2, color='C0')
         ax.plot(time_ms, targets[:T, 0], label='Horizontal target', linewidth=2, linestyle='--', color='C0', alpha=0.7)
@@ -533,8 +627,8 @@ class BaseTask:
         # Add ITI boundary marker if present
         if iti_boundary is not None:
             boundary_time = iti_boundary * self.dt
-            for ax in axes:
-                ax.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
+            ax_inputs.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
+            ax_outputs.axvline(boundary_time, color='red', linestyle='--', linewidth=2, alpha=0.7)
         plt.tight_layout()
         return fig
 
