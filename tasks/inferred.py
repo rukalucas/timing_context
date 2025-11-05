@@ -12,6 +12,7 @@ class InferredTask(BaseTask):
     def __init__(self, **kwargs):
         """Initialize inferred timing task."""
         super().__init__(**kwargs)
+        self.trials_per_sequence = kwargs.get('trials_per_sequence', 40)
         self.name = "Inferred Task"
     def _generate_block_structure(self, num_trials: int):
         """Generate block structure without any instruction cues."""

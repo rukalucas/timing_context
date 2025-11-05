@@ -33,6 +33,7 @@ class SequenceInstructedTask(BaseTask):
     def __init__(self, **kwargs):
         """Initialize sequence instructed timing task."""
         super().__init__(**kwargs)
+        self.trials_per_sequence = kwargs.get('trials_per_sequence', 40)
         self.name = "Sequence Instructed"
 
     def compute_accuracy(
