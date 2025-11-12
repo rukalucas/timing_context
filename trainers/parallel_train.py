@@ -116,9 +116,10 @@ class ParallelTrainer(BaseTrainer):
         )
 
     def load_checkpoint(self, path: str | Path = None, reset_counters: bool = False) -> dict:
-        """Load model checkpoint and restore task sampling statistics."""
+        """Load model checkpoint and optionally restore task sampling statistics."""
         extra_state = super().load_checkpoint(path, reset_counters)
-        if 'task_step_counts' in extra_state:
+        # Only restore task_step_counts if not resetting counters
+        if not reset_counters and 'task_step_counts' in extra_state:
             self.task_step_counts = extra_state['task_step_counts']
         return extra_state
 
