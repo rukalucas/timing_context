@@ -10,12 +10,12 @@ from omegaconf import OmegaConf, DictConfig
 
 def create_tasks(conf: DictConfig) -> list:
     """Create task instances from config."""
-    from tasks import TransitionTask, InferredTask, SequenceInstructedTask, InstructedTimingTask
+    from tasks import TransitionTask, InferredTask, InstructedTask, SingleTrialTask
     task_name_to_class = {
         'transition': TransitionTask,
         'inferred': InferredTask,
-        'sequence_instructed': SequenceInstructedTask,
-        'instructed': InstructedTimingTask,
+        'instructed': InstructedTask,
+        'single_trial': SingleTrialTask,
     }
     tasks = []
     for task_spec in conf.tasks:

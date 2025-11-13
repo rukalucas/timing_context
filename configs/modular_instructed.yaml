@@ -1,0 +1,33 @@
+# Example config for modular RNN with instructed timing task (multi-trial)
+trainer_type: parallel
+random_seed: 42
+
+wandb:
+  project: "timing_context"
+  offline: false  # Set to true for offline mode
+
+tasks:
+  - task_type: instructed
+    weight: 1.0
+    task:
+      trials_per_sequence: 40
+
+model:
+  model_type: modular_rnn
+  hidden_size_1: 64      # Slow module
+  hidden_size_2: 64      # Fast module
+  tau_1: 300.0           # Slow time constant (ms)
+  tau_2: 100.0           # Fast time constant (ms)
+  cross_module_rank_pct: 0.1  # 10% rank for cross-module connections
+  activation: elu
+
+training:
+  learning_rate: 0.0001
+  batch_size: 128
+  total_steps: 4000
+  log_interval: 20
+  num_eval_samples: 128
+  checkpoint_interval: 500
+  log_dir: logs/modular_instructed_multi
+  optimizer_type: adam
+  clip_grad_norm: 1.0

@@ -26,7 +26,7 @@ class BaseTask:
 
     def __init__(
         self,
-        dt: float = 10.0,
+        dt: float = 20.0,
         pulse_width: float = 50.0,
         decision_threshold: float = 850.0,
         delta_t_min: float = 530.0,
@@ -37,8 +37,8 @@ class BaseTask:
         response_period: float = 700.0,
         grace_period: float = 400.0,
         fixation_grace_period: float = 200.0,
-        input_noise_std: float = 0.05,
-        w_m: float = 0.1,
+        input_noise_std: float = 0.1,
+        w_m: float = 0.05,
         discrete_eval: bool = False,
         # Sequence-specific parameters
         inter_trial_interval: float = 1500.0,

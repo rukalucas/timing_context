@@ -6,7 +6,7 @@ from .utils import BaseTask
 
 class InferredTask(BaseTask):
     """
-    Inferred rule timing task. Same as SequenceInstructedTask but without rule cues.
+    Inferred rule timing task. Same as InstructedTask but without rule cues.
     """
     
     def __init__(self, **kwargs):

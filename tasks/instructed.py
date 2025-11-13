@@ -1,12 +1,12 @@
-"""Instructed Timing Task with sequence of trials and block structure."""
+"""Instructed timing task with sequence of trials and block structure."""
 
 import torch
 from .utils import BaseTask
 
 
-class SequenceInstructedTask(BaseTask):
+class InstructedTask(BaseTask):
     """
-    Sequence-based instructed timing task with block structure. BPTT through sequence of trials.
+    Instructed timing task with block structure. BPTT through sequence of trials.
 
     Trial Structure:
     1. Rule report epoch (variable delay + 700ms response) - reports current rule
@@ -31,10 +31,10 @@ class SequenceInstructedTask(BaseTask):
     ]
 
     def __init__(self, **kwargs):
-        """Initialize sequence instructed timing task."""
+        """Initialize instructed timing task."""
         super().__init__(**kwargs)
         self.trials_per_sequence = kwargs.get('trials_per_sequence', 40)
-        self.name = "Sequence Instructed"
+        self.name = "Instructed"
 
     def compute_accuracy(
         self,

@@ -1,45 +1,40 @@
 # Orthogonal Subspaces Continual Learning Configuration
-# Trains sequence_instructed -> inferred sequentially with gradient projection, based on Duncker et al. (2020)
+# Trains instructed -> inferred sequentially with gradient projection, based on Duncker et al. (2020)
 
 trainer_type: orthogonal_sequential
 random_seed: 42
-start_from: logs/sequential_multitask/checkpoint_after_sequence_instructed.pt
+
+wandb:
+  project: "timing_context"
+  offline: false  # Set to true for offline mode
+
+start_from: logs/sequential_multitask/checkpoint_after_instructed.pt
 
 tasks:
-  - task_type: sequence_instructed # start from pretrained
+  - task_type: instructed # start from pretrained
     num_steps: 1000
     task:
-      dt: 10.0
-      input_noise_std: 0.05
-      w_m: 0.1
       trials_per_sequence: 40
 
   - task_type: inferred
     num_steps: 2000
     task:
-      dt: 10.0
-      input_noise_std: 0.05
-      w_m: 0.1
       trials_per_sequence: 40
 
 model:
-  input_size: 5
   hidden_size: 256
-  output_size: 2
   tau: 100.0
-  dt: 10.0
   activation: elu
-  noise_std: 0.1
 
 training:
   learning_rate: 0.0003
-  batch_size: 32
+  batch_size: 128
   log_interval: 20
-  num_eval_samples: 32
+  num_eval_samples: 128
   checkpoint_interval: 500
   log_dir: logs/orthogonal
   # Trainer-specific parameters
   reset_optimizer_between_tasks: true
   alpha_projection: 0.001
   apply_proj_to: both
-  projection_collection_batch_size: 32
+  projection_collection_batch_size: 128

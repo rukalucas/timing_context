@@ -1,11 +1,11 @@
-"""Instructed (cued context-dependent) Timing Decision Task implementation."""
+"""Single-trial instructed (cued context-dependent) timing decision task."""
 
 from .utils import BaseTask
 
 
-class InstructedTimingTask(BaseTask):
+class SingleTrialTask(BaseTask):
     """
-    Instructed context-dependent timing decision task. Only one trial, then BPTT.
+    Single-trial instructed context-dependent timing decision task. Only one trial, then BPTT.
 
     Inputs (5 channels):
     1. Center fixation: Tonic at 0.2, flashes to 1.0 for 50ms at pulses
@@ -30,11 +30,11 @@ class InstructedTimingTask(BaseTask):
     def __init__(self, **kwargs):
         """Initialize single-trial instructed timing task."""
         if 'trials_per_sequence' in kwargs and kwargs['trials_per_sequence'] != 1:
-            raise ValueError("InstructedTimingTask only supports single trials (trials_per_sequence=1).")
+            raise ValueError("SingleTrialTask only supports single trials (trials_per_sequence=1).")
         kwargs['trials_per_sequence'] = 1  # Single trial only
         kwargs['inter_trial_interval'] = 0.0 # No ITI
         kwargs['reward_duration'] = 0.0
         kwargs['rule_cue_prob'] = 1.0  # Always show rule cue
 
         super().__init__(**kwargs)
-        self.name = "Instructed Timing"
+        self.name = "Single-Trial"

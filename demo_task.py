@@ -5,8 +5,9 @@ from absl import flags
 from matplotlib import pyplot as plt
 import numpy as np
 import torch
+import os
 
-from tasks import InstructedTimingTask, SequenceInstructedTask, InferredTask, TransitionTask
+from tasks import SingleTrialTask, InstructedTask, InferredTask, TransitionTask
 from models.rnn import RNN
 from trainers.utils import BaseTrainer
 
@@ -16,10 +17,10 @@ flags.DEFINE_bool('discrete', False, 'Use discrete evaluation intervals.')
 flags.DEFINE_float('rule_cue_prob', 0.5, 'Rule cue probability for transition task (0.0=inferred, 1.0=fully instructed).')
 
 def demo_instructed_timing_task(num_trials: int, discrete: bool):
-    """Demo the InstructedTimingTask with new batch structure."""
+    """Demo the SingleTrialTask with new batch structure."""
 
-    task = InstructedTimingTask(
-        dt=10.0,
+    task = SingleTrialTask(
+        dt=20.0,
         pulse_width=50.0,
         decision_threshold=850.0,
         delta_t_min=530.0,
@@ -59,11 +60,11 @@ def demo_instructed_timing_task(num_trials: int, discrete: bool):
     plt.show()
 
 
-def demo_sequence_instructed_task(num_sequences: int, discrete: bool):
-    """Demo the SequenceInstructedTask with interactive navigation."""
+def demo_instructed_task(num_sequences: int, discrete: bool):
+    """Demo the InstructedTask with interactive navigation."""
 
-    task = SequenceInstructedTask(
-        dt=10.0,
+    task = InstructedTask(
+        dt=20.0,
         pulse_width=50.0,
         decision_threshold=850.0,
         delta_t_min=530.0,
@@ -153,7 +154,7 @@ def demo_inferred_task(num_sequences: int, discrete: bool):
     """Demo the InferredTask with interactive navigation."""
 
     task = InferredTask(
-        dt=10.0,
+        dt=20.0,
         pulse_width=50.0,
         decision_threshold=850.0,
         delta_t_min=530.0,
@@ -245,7 +246,7 @@ def demo_transition_task(num_sequences: int, discrete: bool, rule_cue_prob: floa
     """
 
     task = TransitionTask(
-        dt=10.0,
+        dt=20.0,
         pulse_width=50.0,
         decision_threshold=850.0,
         delta_t_min=530.0,
@@ -348,9 +349,9 @@ def demo_rnn_processing():
     print("="*70 + "\n")
 
     # Create sequence task with 3 trials and RNN model
-    task = SequenceInstructedTask(dt=10.0, input_noise_std=0.1, trials_per_sequence=3,
-                                   inter_trial_interval=1000.0, reward_duration=300.0)
-    model = RNN(input_size=5, hidden_size=128, output_size=2, dt=10.0, tau=100.0)
+    task = InstructedTask(dt=20.0, input_noise_std=0.1, trials_per_sequence=3,
+                          inter_trial_interval=1000.0, reward_duration=300.0)
+    model = RNN(input_size=5, hidden_size=128, output_size=2, dt=20.0, tau=100.0)
     model.eval()
 
     # Generate a batch with 1 sequence
@@ -367,7 +368,17 @@ def demo_rnn_processing():
     print(f"Sequence with {num_trials} trials, hidden_size={H}\n")
 
     # Create trainer instance to use its forward pass method
-    trainer = BaseTrainer(model=model, log_dir='logs/temp')
+    # Provide minimal config with wandb disabled (no files saved)
+    demo_config = {
+        'wandb': {
+            'project': 'timing_context',
+            'run_name': 'demo_rnn_processing',
+        }
+    }
+
+    # Temporarily set wandb to disabled mode
+    os.environ['WANDB_MODE'] = 'disabled'
+    trainer = BaseTrainer(model=model, log_dir='logs/temp', config=demo_config)
 
     # Use trainer's forward pass with return_hidden=True to get everything in one pass
     with torch.no_grad():
@@ -486,28 +497,28 @@ def main(argv):
     """Plot stimulus and desired response for task trials."""
     if len(argv) < 2:
         print("Usage: python demo_task.py <task_type> [options]")
-        print("Available tasks: instructed, sequence_instructed, inferred, transition, rnn_demo")
+        print("Available tasks: single_trial, instructed, inferred, transition, rnn")
         return
 
     task_type = argv[1]
 
-    if task_type == 'instructed':
-        print(f"Demonstrating InstructedTimingTask with {FLAGS.num_trials} trials...")
+    if task_type == 'single_trial':
+        print(f"Demonstrating SingleTrialTask with {FLAGS.num_trials} trials...")
         demo_instructed_timing_task(FLAGS.num_trials, FLAGS.discrete)
-    elif task_type == 'sequence_instructed':
-        print(f"Demonstrating SequenceInstructedTask with {FLAGS.num_trials} sequences...")
-        demo_sequence_instructed_task(FLAGS.num_trials, FLAGS.discrete)
+    elif task_type == 'instructed':
+        print(f"Demonstrating InstructedTask with {FLAGS.num_trials} sequences...")
+        demo_instructed_task(FLAGS.num_trials, FLAGS.discrete)
     elif task_type == 'inferred':
         print(f"Demonstrating InferredTask with {FLAGS.num_trials} sequences...")
         demo_inferred_task(FLAGS.num_trials, FLAGS.discrete)
     elif task_type == 'transition':
         print(f"Demonstrating TransitionTask with {FLAGS.num_trials} sequences (rule_cue_prob={FLAGS.rule_cue_prob})...")
         demo_transition_task(FLAGS.num_trials, FLAGS.discrete, FLAGS.rule_cue_prob)
-    elif task_type == 'rnn_demo':
+    elif task_type == 'rnn':
         demo_rnn_processing()
     else:
         print(f"Unknown task type: {task_type}")
-        print("Available tasks: instructed, sequence_instructed, inferred, transition, rnn_demo")
+        print("Available tasks: single_trial, instructed, inferred, transition, rnn")
 
 
 if __name__ == '__main__':

@@ -22,10 +22,10 @@ class ModularRNN(nn.Module):
         output_size: int = 2,
         tau_1: float = 300.0,  # Slow time constant (ms)
         tau_2: float = 100.0,  # Fast time constant (ms)
-        dt: float = 10.0,  # ms
+        dt: float = 20.0,  # ms
         cross_module_rank_pct: float = 0.1,  # Percentage for low-rank connections
         activation: str = 'elu',
-        noise_std: float = 0.05,
+        noise_std: float = 0.1,
     ):
         super().__init__()
         self.input_size = input_size

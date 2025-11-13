@@ -3,36 +3,30 @@
 trainer_type: parallel
 random_seed: 42
 
+wandb:
+  project: "timing_context"
+  offline: false  # Set to true for offline mode
+
 tasks:
-  - task_type: sequence_instructed
-    weight: 0.5  # 50% of minibatches from sequence_instructed task
+  - task_type: instructed
+    weight: 0.5  # 50% of minibatches from instructed task
     task:
-      dt: 10.0
-      input_noise_std: 0.05
-      w_m: 0.1
       trials_per_sequence: 40
 
   - task_type: inferred
     weight: 0.5  # 50% of minibatches from inferred task
     task:
-      dt: 10.0
-      input_noise_std: 0.05
-      w_m: 0.1
       trials_per_sequence: 40
 
 model:
-  input_size: 5
   hidden_size: 256
-  output_size: 2
   tau: 100.0
-  dt: 10.0
   activation: elu
-  noise_std: 0.05
 
 training:
   learning_rate: 1e-4
-  batch_size: 64
-  num_eval_samples: 64 # number of eval batches. evaluated trials = 40 * this
+  batch_size: 128
+  num_eval_samples: 128 # number of eval batches. evaluated trials = 40 * this
   log_interval: 20
   checkpoint_interval: 500
   log_dir: logs/parallel_multitask

@@ -238,10 +238,10 @@ def plot_training_metrics(log_dir, save_path=None):
 
 def plot_rule_specific_psychometric_curves(task, model, num_trials_per_interval=100, save_path=None):
     """
-    Plot psychometric curves for InstructedTimingTask, separated by rule.
+    Plot psychometric curves for SingleTrialTask, separated by rule.
 
     Args:
-        task: InstructedTimingTask instance (with discrete_eval=True)
+        task: SingleTrialTask instance (with discrete_eval=True)
         model: Trained RNN model
         num_trials_per_interval: Number of trials per interval value
         save_path: Optional path to save figure
@@ -362,10 +362,10 @@ def plot_instructed_trial(task, model, delta_t: Optional[float] = None,
                          direction: Optional[int] = None, rule: Optional[int] = None,
                          save_path: Optional[str] = None):
     """
-    Plot a single trial from InstructedTimingTask with 3-subplot structure.
+    Plot a single trial from SingleTrialTask with 3-subplot structure.
 
     Args:
-        task: InstructedTimingTask instance
+        task: SingleTrialTask instance
         model: Trained RNN model
         delta_t: Optional specific interval duration
         direction: Optional specific direction

@@ -16,9 +16,9 @@ class RNN(nn.Module):
         hidden_size: int = 128,
         output_size: int = 2,
         tau: float = 100.0,  # ms
-        dt: float = 10.0,  # ms
+        dt: float = 20.0,  # ms
         activation: str = 'elu',
-        noise_std: float = 0.05,
+        noise_std: float = 0.1,
     ):
         super().__init__()
         self.input_size = input_size

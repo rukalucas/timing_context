@@ -1,9 +1,9 @@
 """Task implementations for timing decision experiments."""
 
 from .utils import BaseTask
-from .instructed_timing import InstructedTimingTask
-from .sequence_instructed import SequenceInstructedTask
+from .single_trial import SingleTrialTask
+from .instructed import InstructedTask
 from .inferred import InferredTask
 from .transition import TransitionTask
 
-__all__ = ['BaseTask', 'InstructedTimingTask', 'SequenceInstructedTask', 'InferredTask', 'TransitionTask']
+__all__ = ['BaseTask', 'SingleTrialTask', 'InstructedTask', 'InferredTask', 'TransitionTask']

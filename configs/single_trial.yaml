@@ -1,0 +1,29 @@
+# Single trial instructed task only.
+trainer_type: parallel
+random_seed: 42
+
+wandb:
+  project: "timing_context"
+  run_name: "single_trial_task"
+  offline: false  # Set to true for offline mode (sync later with 'wandb sync')
+
+tasks:
+  - task_type: single_trial
+    weight: 1.0
+
+model:
+  hidden_size: 128
+  tau: 100.0
+  activation: elu
+
+training:
+  learning_rate: 0.01
+  batch_size: 128
+  total_steps: 500
+  log_interval: 20
+  num_eval_samples: 128
+  checkpoint_interval: 500
+  log_dir: logs/single_trial
+  optimizer_type: adam
+  # weight_decay: 1e-2
+  clip_grad_norm: 1.0

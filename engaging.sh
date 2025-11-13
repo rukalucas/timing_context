@@ -1,15 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=context_in_time
+#SBATCH --job-name=timing_context
 #SBATCH --output=logs/slurm_logs/slurm_%j.out
 #SBATCH --error=logs/slurm_logs/slurm_%j.err
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=40G
 #SBATCH --time=12:00:00
 
 module load miniforge
 source .venv/bin/activate
 
-python main.py configs/sequence_instructed.yaml \
-    training.log_dir=logs/sequence_instructed
+python main.py configs/instructed.yaml
