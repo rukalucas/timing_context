@@ -3,5 +3,5 @@ numpy
 matplotlib
 PyYAML
 omegaconf
-tensorboard
 ipympl
+wandb

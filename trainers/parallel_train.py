@@ -4,7 +4,6 @@ import numpy as np
 import wandb
 from pathlib import Path
 from typing import Optional
-from torch.profiler import record_function
 
 from models import Model
 from tasks import BaseTask
@@ -132,8 +131,7 @@ class ParallelTrainer(BaseTrainer):
         for step in range(self.total_steps):
             # Evaluation and logging (before training step)
             if self.step % self.log_interval == 0:
-                with record_function("eval"):
-                    self.eval(task_idx, loss)
+                self.eval(task_idx, loss)
                 if self.multi_task:
                     task_name = self.task_names[task_idx] if loss is not None else ""
                     task_str = f" [{task_name}]" if task_name else ""
@@ -149,12 +147,8 @@ class ParallelTrainer(BaseTrainer):
             # Sample task, generate batch, and train
             task_idx = np.random.choice(len(self.tasks), p=self.task_weights)
             task = self.tasks[task_idx]
-
-            with record_function("generate_batch"):
-                batch = task.generate_batch(self.batch_size)
-
-            with record_function("train_step"):
-                loss = self.train_step(batch, task)
+            batch = task.generate_batch(self.batch_size)
+            loss = self.train_step(batch, task)
 
             # Update counters
             self.step += 1
@@ -162,8 +156,7 @@ class ParallelTrainer(BaseTrainer):
 
             # Checkpointing
             if (step + 1) % self.checkpoint_interval == 0:
-                with record_function("checkpoint_save"):
-                    self.save_checkpoint(f'{step+1}.pt')
+                self.save_checkpoint(f'{step+1}.pt')
 
         print("Training complete!")
 
