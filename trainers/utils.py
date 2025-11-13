@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 import os
 import wandb
+from torch.profiler import record_function
 
 from tasks import BaseTask
 from models import Model
@@ -140,57 +141,64 @@ class BaseTrainer:
             Loss value (float)
         """
         # Forward pass with ITI processing
-        all_outputs, _, _, _, _ = self._forward_pass(batch, task, include_iti=True)
+        with record_function("forward_pass"):
+            all_outputs, _, _, _, _ = self._forward_pass(batch, task, include_iti=True)
 
         # Gather targets and loss masks
-        all_targets = [trial['targets'] for trial in batch]
-        all_masks = [trial['loss_mask'] for trial in batch]
+        with record_function("loss_computation"):
+            all_targets = [trial['targets'] for trial in batch]
+            all_masks = [trial['loss_mask'] for trial in batch]
 
-        # Concatenate all trials
-        outputs = torch.cat(all_outputs, dim=1)  # [B, N*max_trial_len, 2]
-        targets = torch.cat(all_targets, dim=1)  # [B, N*max_trial_len, 2]
-        masks = torch.cat(all_masks, dim=1)  # [B, N*max_trial_len, 2]
+            # Concatenate all trials
+            outputs = torch.cat(all_outputs, dim=1)  # [B, N*max_trial_len, 2]
+            targets = torch.cat(all_targets, dim=1)  # [B, N*max_trial_len, 2]
+            masks = torch.cat(all_masks, dim=1)  # [B, N*max_trial_len, 2]
 
-        # Compute masked MSE loss
-        mse = (outputs - targets) ** 2
-        weighted_mse = mse * masks
-        loss = weighted_mse.sum() / (masks.sum() + 1e-8)
+            # Compute masked MSE loss
+            mse = (outputs - targets) ** 2
+            weighted_mse = mse * masks
+            loss = weighted_mse.sum() / (masks.sum() + 1e-8)
 
         # Backward pass
-        self.optimizer.zero_grad()
-        loss.backward()
-
-        # Compute and log gradient norms
-        wandb_metrics = {}
-        total_grad_norm = 0.0
-        for name, param in self.model.named_parameters():
-            if param.grad is not None:
-                param_norm = param.grad.data.norm(2).item()
-                total_grad_norm += param_norm ** 2
-                wandb_metrics[f'train/grad_norm/{name}'] = param_norm
-        total_grad_norm = total_grad_norm ** 0.5
-        wandb_metrics['train/grad_norm/total'] = total_grad_norm
+        with record_function("backward"):
+            self.optimizer.zero_grad()
+            loss.backward()
 
         # Gradient clipping
-        if self.clip_grad_norm is not None:
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(),
-                self.clip_grad_norm
-            )
+        with record_function("gradient_clipping"):
+            if self.clip_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.clip_grad_norm
+                )
 
-        # Log loss
-        loss_val = loss.item()
-        wandb_metrics['loss'] = loss_val
+        # Optimizer step
+        with record_function("optimizer_step"):
+            self.optimizer.step()
 
-        self.optimizer.step()
+        # Logging
+        with record_function("logging"):
+            # Compute and log gradient norms
+            wandb_metrics = {}
+            total_grad_norm = 0.0
+            for name, param in self.model.named_parameters():
+                if param.grad is not None:
+                    param_norm = param.grad.data.norm(2).item()
+                    total_grad_norm += param_norm ** 2
+                    wandb_metrics[f'train/grad_norm/{name}'] = param_norm
+            total_grad_norm = total_grad_norm ** 0.5
+            wandb_metrics['train/grad_norm/total'] = total_grad_norm
 
-        # Log weight norms
-        for name, param in self.model.named_parameters():
-            param_norm = param.data.norm(2).item()
-            wandb_metrics[f'train/weight_norm/{name}'] = param_norm
+            # Log loss
+            loss_val = loss.item()
+            wandb_metrics['loss'] = loss_val
 
-        # Log to wandb
-        if self.use_wandb:
+            # Log weight norms
+            for name, param in self.model.named_parameters():
+                param_norm = param.data.norm(2).item()
+                wandb_metrics[f'train/weight_norm/{name}'] = param_norm
+
+            # Log to wandb
             wandb.log(wandb_metrics, step=self.step)
 
         return loss_val
@@ -231,63 +239,66 @@ class BaseTrainer:
         all_iti_outputs = [] if return_hidden else None
 
         for trial_idx, trial in enumerate(batch):
-            trial_inputs = trial['inputs']  # [B, max_trial_len, 5]
-            trial_lengths = trial['trial_lengths']  # [B]
-            max_trial_len = trial_inputs.shape[1]
+            with record_function("trial_processing"):
+                trial_inputs = trial['inputs']  # [B, max_trial_len, 5]
+                trial_lengths = trial['trial_lengths']  # [B]
+                max_trial_len = trial_inputs.shape[1]
 
-            trial_outputs = []
-            for t in range(max_trial_len):
-                still_active = (t < trial_lengths).unsqueeze(-1).float()
-                input_t = trial_inputs[:, t, :]
-                output_t, h_new = self.model(input_t, h)
-                h = still_active * h_new + (1 - still_active) * h
-                trial_outputs.append(output_t)
+                trial_outputs = []
+                for t in range(max_trial_len):
+                    still_active = (t < trial_lengths).unsqueeze(-1).float()
+                    input_t = trial_inputs[:, t, :]
+                    output_t, h_new = self.model(input_t, h)
+                    h = still_active * h_new + (1 - still_active) * h
+                    trial_outputs.append(output_t)
+                    if return_hidden:
+                        all_hidden.append(h.clone())
+
+                trial_outputs = torch.stack(trial_outputs, dim=1)  # [B, T, 2]
+                all_outputs.append(trial_outputs)
+                all_inputs.append(trial_inputs)
+                all_targets.append(trial['targets'])
+                all_eval_masks.append(trial['eval_mask'])
+                all_loss_masks.append(trial['loss_mask'])
+
                 if return_hidden:
-                    all_hidden.append(h.clone())
-
-            trial_outputs = torch.stack(trial_outputs, dim=1)  # [B, T, 2]
-            all_outputs.append(trial_outputs)
-            all_inputs.append(trial_inputs)
-            all_targets.append(trial['targets'])
-            all_eval_masks.append(trial['eval_mask'])
-            all_loss_masks.append(trial['loss_mask'])
-
-            if return_hidden:
-                trial_boundaries.append(len(all_hidden))
+                    trial_boundaries.append(len(all_hidden))
 
             # ITI processing (only if requested and not last trial)
             if include_iti and trial_idx < N - 1 and hasattr(task, '_generate_iti_inputs'):
-                # Compute trial correctness
-                is_correct = task._evaluate_trial_correctness_batch(
-                    trial_outputs,
-                    trial['targets'],
-                    trial['eval_mask']
-                )
+                with record_function("iti_generation"):
+                    # Compute trial correctness
+                    is_correct = task._evaluate_trial_correctness_batch(
+                        trial_outputs,
+                        trial['targets'],
+                        trial['eval_mask']
+                    )
 
-                # Generate and process ITI
-                iti_inputs = task._generate_iti_inputs(
-                    is_correct,
-                    trial['metadata'],
-                    task.iti_len,
-                    task.reward_len
-                )
+                    # Generate ITI inputs
+                    iti_inputs = task._generate_iti_inputs(
+                        is_correct,
+                        trial['metadata'],
+                        task.iti_len,
+                        task.reward_len
+                    )
 
-                if return_hidden:
-                    iti_start = len(all_hidden)
-
-                iti_outputs = []
-                for t in range(iti_inputs.shape[1]):
-                    output_t, h = self.model(iti_inputs[:, t, :], h)
+                with record_function("iti_forward"):
                     if return_hidden:
-                        all_hidden.append(h.clone())
-                        iti_outputs.append(output_t)
+                        iti_start = len(all_hidden)
 
-                if return_hidden:
-                    all_iti_inputs.append(iti_inputs)
-                    all_iti_targets.append(torch.zeros(B, iti_inputs.shape[1], 2))
-                    all_iti_outputs.append(torch.stack(iti_outputs, dim=1))  # [B, iti_len, 2]
-                    iti_regions.append((iti_start, len(all_hidden)))
-                    trial_boundaries.append(len(all_hidden))
+                    iti_outputs = []
+                    for t in range(iti_inputs.shape[1]):
+                        output_t, h = self.model(iti_inputs[:, t, :], h)
+                        if return_hidden:
+                            all_hidden.append(h.clone())
+                            iti_outputs.append(output_t)
+
+                    if return_hidden:
+                        all_iti_inputs.append(iti_inputs)
+                        all_iti_targets.append(torch.zeros(B, iti_inputs.shape[1], 2))
+                        all_iti_outputs.append(torch.stack(iti_outputs, dim=1))  # [B, iti_len, 2]
+                        iti_regions.append((iti_start, len(all_hidden)))
+                        trial_boundaries.append(len(all_hidden))
 
         if return_hidden:
             return (all_outputs, all_inputs, all_targets, all_eval_masks, all_loss_masks, all_hidden,
