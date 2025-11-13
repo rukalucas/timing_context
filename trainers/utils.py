@@ -2,12 +2,11 @@
 
 import torch
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Optional
-import csv
-import subprocess
+import os
+import wandb
 
 from tasks import BaseTask
 from models import Model
@@ -26,7 +25,8 @@ class BaseTrainer:
         checkpoint_interval: int = 1000,
         optimizer_type: str = 'adam',
         weight_decay: float = 0.01,
-        clip_grad_norm: Optional[float] = None
+        clip_grad_norm: Optional[float] = None,
+        config: Optional[dict] = None
     ):
         """Initialize base trainer.
 
@@ -40,6 +40,7 @@ class BaseTrainer:
             optimizer_type: Optimizer type ('adam', 'adamw', or 'sgd')
             weight_decay: Weight decay for AdamW optimizer (default 0.01)
             clip_grad_norm: Maximum gradient norm for clipping (None to disable)
+            config: Full configuration dict (will extract wandb config and log full config to wandb)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -63,60 +64,62 @@ class BaseTrainer:
 
         self.criterion = nn.MSELoss(reduction='none')
 
-        # Logging
-        self.writer = SummaryWriter(log_dir=self.log_dir)
-        self.csv_path = self.log_dir / 'metrics.csv'
-        self.csv_file = None
-        self.csv_writer = None
+        # Wandb logging (always enabled)
+        if config and 'wandb' in config:
+            wandb_config = config['wandb']
+
+            # Prepare wandb.init kwargs
+            init_kwargs = {
+                'project': wandb_config['project'],
+                'dir': str(self.log_dir),
+                'config': config
+            }
+
+            # Optional parameters
+            if 'entity' in wandb_config and wandb_config['entity']:
+                init_kwargs['entity'] = wandb_config['entity']
+            if 'run_name' in wandb_config and wandb_config['run_name']:
+                init_kwargs['name'] = wandb_config['run_name']
+            if wandb_config.get('offline', False):
+                init_kwargs['mode'] = 'offline'
+
+            wandb.init(**init_kwargs)
+
+            # Log SLURM information if running on SLURM
+            if 'SLURM_JOB_ID' in os.environ:
+                slurm_info = {
+                    'job_id': os.environ.get('SLURM_JOB_ID'),
+                    'job_name': os.environ.get('SLURM_JOB_NAME'),
+                    'partition': os.environ.get('SLURM_JOB_PARTITION'),
+                    'nodelist': os.environ.get('SLURM_NODELIST'),
+                    'cpus': os.environ.get('SLURM_CPUS_ON_NODE'),
+                    'mem_per_node': os.environ.get('SLURM_MEM_PER_NODE'),
+                }
+                # Remove None values
+                slurm_info = {k: v for k, v in slurm_info.items() if v is not None}
+
+                # Update wandb config with SLURM info
+                wandb.config.update({'slurm': slurm_info})
+
+                # Add job ID as a tag for easy filtering
+                if wandb.run:
+                    wandb.run.tags = wandb.run.tags + (f"slurm_{slurm_info['job_id']}",)
+        else:
+            raise ValueError("wandb config is required in config file")
+
+        # Print full configuration
+        print("\n" + "="*60)
+        print("Configuration:")
+        print(f"  Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu'}")
+        print(f"  PyTorch threads: {torch.get_num_threads()}")
+        if config:
+            import json
+            print("\nFull Config:")
+            print(json.dumps(config, indent=2, default=str))
+        print("="*60 + "\n")
 
         # Training state
         self.step = 0
-
-        # TensorBoard process
-        self.tensorboard_process = None
-
-    def _init_csv(self, fields: list[str]) -> None:
-        """Initialize CSV file with specified fields.
-
-        Args:
-            fields: List of field names for CSV columns
-        """
-        self.csv_file = open(self.csv_path, 'w', newline='')
-        self.csv_writer = csv.DictWriter(
-            self.csv_file,
-            fieldnames=['step'] + fields,
-            extrasaction='ignore',
-            restval=''
-        )
-        self.csv_writer.writeheader()
-        self.csv_file.flush()
-
-    def launch_tensorboard(self) -> None:
-        """Launch TensorBoard in background and print clickable URL."""
-        try:
-            # Launch tensorboard with default port (tries 6006, 6007, ... if busy)
-            self.tensorboard_process = subprocess.Popen(
-                ['tensorboard', '--logdir', str(self.log_dir)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1
-            )
-
-            # Read the first few lines to find the URL
-            print()
-            for i in range(10):
-                line = self.tensorboard_process.stdout.readline()
-                if 'http://' in line:
-                    print(f"TensorBoard: {line.strip()}\n")
-                    break
-
-        except FileNotFoundError:
-            print("\nWarning: TensorBoard not found. Install with: pip install tensorboard")
-            print("Logs will still be saved to disk.\n")
-        except Exception as e:
-            print(f"\nWarning: Could not launch TensorBoard: {e}")
-            print("Logs will still be saved to disk.\n")
 
     def train_step(self, batch: list, task: BaseTask) -> float:
         """Unified training step for both single-trial and sequence tasks.
@@ -158,13 +161,15 @@ class BaseTrainer:
         loss.backward()
 
         # Compute and log gradient norms
+        wandb_metrics = {}
         total_grad_norm = 0.0
         for name, param in self.model.named_parameters():
             if param.grad is not None:
                 param_norm = param.grad.data.norm(2).item()
                 total_grad_norm += param_norm ** 2
-                self.writer.add_scalar(f'train/grad_norm/{name}', param_norm, self.step)
+                wandb_metrics[f'train/grad_norm/{name}'] = param_norm
         total_grad_norm = total_grad_norm ** 0.5
+        wandb_metrics['train/grad_norm/total'] = total_grad_norm
 
         # Gradient clipping
         if self.clip_grad_norm is not None:
@@ -172,18 +177,21 @@ class BaseTrainer:
                 self.model.parameters(),
                 self.clip_grad_norm
             )
-            
-        self.writer.add_scalar('train/grad_norm/total', total_grad_norm, self.step)
+
         # Log loss
         loss_val = loss.item()
-        self.writer.add_scalar('loss', loss_val, self.step)
+        wandb_metrics['loss'] = loss_val
 
         self.optimizer.step()
 
         # Log weight norms
         for name, param in self.model.named_parameters():
             param_norm = param.data.norm(2).item()
-            self.writer.add_scalar(f'train/weight_norm/{name}', param_norm, self.step)
+            wandb_metrics[f'train/weight_norm/{name}'] = param_norm
+
+        # Log to wandb
+        if self.use_wandb:
+            wandb.log(wandb_metrics, step=self.step)
 
         return loss_val
 
@@ -352,28 +360,11 @@ class BaseTrainer:
                         loss_mask=loss_mask_np
                     )
                     figure_name = f'{task_name}/trial_{trial_idx+1}' if task_name else f'trial_{trial_idx+1}'
-                    self.writer.add_figure(figure_name, fig, self.step)
+                    wandb.log({figure_name: wandb.Image(fig)}, step=self.step)
                     plt.close(fig)
 
         self.model.train()
         return metrics
-
-    def log_metrics(self, metrics: dict, step: int) -> None:
-        """Log metrics to TensorBoard and CSV.
-
-        Args:
-            metrics: Dictionary of metric name -> value
-            step: Current training step
-        """
-        # TensorBoard
-        for key, value in metrics.items():
-            if isinstance(value, (int, float)):
-                self.writer.add_scalar(key, value, step)
-
-        # CSV
-        if self.csv_writer is not None:
-            self.csv_writer.writerow({'step': step, **metrics})
-            self.csv_file.flush()
 
     def save_checkpoint(self, filename: str = 'checkpoint.pt', extra_state: Optional[dict] = None) -> None:
         """Save model checkpoint.
@@ -382,7 +373,11 @@ class BaseTrainer:
             filename: Checkpoint filename
             extra_state: Optional extra state dict to save
         """
-        checkpoint_path = self.log_dir / filename
+        # Create checkpoints directory if it doesn't exist
+        checkpoint_dir = self.log_dir / 'checkpoints'
+        checkpoint_dir.mkdir(exist_ok=True)
+
+        checkpoint_path = checkpoint_dir / filename
         state = {
             'step': self.step,
             'model_state_dict': self.model.state_dict(),
@@ -392,7 +387,13 @@ class BaseTrainer:
             state.update(extra_state)
 
         torch.save(state, checkpoint_path)
-        print(f"Checkpoint saved to {checkpoint_path}")
+
+        # Upload to wandb
+        wandb.save(str(checkpoint_path))
+
+        # Only print for non-latest checkpoints to reduce noise
+        if filename != 'latest.pt':
+            print(f"Checkpoint saved to {checkpoint_path}")
 
     def load_checkpoint(self, path: str | Path = None, reset_counters: bool = False) -> dict:
         """Load model checkpoint.
@@ -429,10 +430,5 @@ class BaseTrainer:
         return extra_state
 
     def close(self) -> None:
-        """Close logging resources and kill TensorBoard process."""
-        self.writer.close()
-        if self.csv_file is not None:
-            self.csv_file.close()
-        if self.tensorboard_process is not None:
-            self.tensorboard_process.terminate()
-            self.tensorboard_process.wait(timeout=5)
+        """Close logging resources."""
+        wandb.finish()

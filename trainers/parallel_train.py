@@ -1,6 +1,7 @@
 """Parallel trainer - interleaves batches from multiple tasks."""
 
 import numpy as np
+import wandb
 from pathlib import Path
 from typing import Optional
 
@@ -54,21 +55,6 @@ class ParallelTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
-        # Initialize CSV with all expected fields (only for tasks with eval=True)
-        csv_fields = ['loss']
-        for task, task_name, eval_flag in zip(self.tasks, self.task_names, self.task_eval_flags):
-            if not eval_flag:
-                continue
-            # Get metric names from task class attribute
-            for metric_name in task.metric_names:
-                csv_fields.append(f'{task_name}/{metric_name}')
-        # Add task sampling fields for multi-task
-        if self.multi_task:
-            for task_name in self.task_names:
-                csv_fields.append(f'task_sampling/{task_name}_count')
-
-        self._init_csv(csv_fields)
-
     def eval(self, task_idx: int, loss: Optional[float] = None) -> None:
         """Evaluate all tasks with eval=True, log scalars and figures.
 
@@ -105,8 +91,11 @@ class ParallelTrainer(BaseTrainer):
         print(f"Evaluation after step {self.step}: " +
               ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()]))
 
-        # Log all metrics
-        self.log_metrics(all_metrics, self.step)
+        # Log metrics to wandb
+        wandb.log(all_metrics, step=self.step)
+
+        # Save latest checkpoint
+        self.save_checkpoint(filename='latest.pt', extra_state={'task_step_counts': self.task_step_counts})
 
     def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
         """Save model checkpoint with task sampling statistics."""
@@ -136,9 +125,6 @@ class ParallelTrainer(BaseTrainer):
             print(f"Task: {self.task_names[0]}")
 
         print(f"Log directory: {self.log_dir}")
-
-        # Launch TensorBoard
-        self.launch_tensorboard()
 
         loss = None  # Initialize for first eval
         task_idx = 0  # Initialize for first eval
@@ -170,10 +156,8 @@ class ParallelTrainer(BaseTrainer):
 
             # Checkpointing
             if (step + 1) % self.checkpoint_interval == 0:
-                self.save_checkpoint(f'checkpoint_step_{step+1}.pt')
+                self.save_checkpoint(f'{step+1}.pt')
 
-        # Final checkpoint
-        self.save_checkpoint('checkpoint_final.pt')
         print("Training complete!")
 
         if len(self.tasks) > 1:

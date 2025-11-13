@@ -423,6 +423,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
     def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
         """Override to save projection matrices in addition to base state."""
         extra_state = {
+            'current_task_idx': self.current_task_idx,
+            'current_task_step': self.current_task_step,
             'use_orthogonal_projection': True,
             'alpha_projection': self.alpha_projection,
             'apply_proj_to': self.apply_proj_to
@@ -442,7 +444,8 @@ class OrthogonalSequentialTrainer(SequentialTrainer):
             extra_state['P_y'] = self.P_y
             extra_state['P_h'] = self.P_h
 
-        super().save_checkpoint(filename=filename, extra_state=extra_state)
+        # Call BaseTrainer.save_checkpoint directly (skip SequentialTrainer since we handle its state here)
+        BaseTrainer.save_checkpoint(self, filename=filename, extra_state=extra_state)
 
     def _restore_extra_state(self, extra_state: dict) -> None:
         """Override to restore projection state in addition to base state."""

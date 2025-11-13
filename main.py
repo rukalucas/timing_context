@@ -69,6 +69,7 @@ def create_trainer(conf: DictConfig, model, log_dir: str = None):
         'task_names': task_names,
         'task_eval_flags': task_eval_flags,
         'log_dir': log_dir,
+        'config': OmegaConf.to_container(conf, resolve=True),
         **conf.training
     }
 
@@ -129,12 +130,6 @@ def check_log_dir_exists(log_dir: Path) -> bool:
     response = input("Do you want to proceed? (y/n): ").strip().lower()
 
     if response == 'y':
-        # Remove tensorboard event files
-        tb_files = list(log_dir.glob('events.out.tfevents.*'))
-        if tb_files:
-            print(f"Removing {len(tb_files)} tensorboard file(s)...")
-            for tb_file in tb_files:
-                tb_file.unlink()
         return True
     else:
         print("\nTraining cancelled.")
@@ -178,9 +173,6 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(conf, log_dir / 'config.yaml')
 
-    # Print configuration
-    print_config(conf)
-
     # Create model and trainer using factory functions
     model = create_model(conf)
     trainer = create_trainer(conf, model)
@@ -192,60 +184,6 @@ def main():
 
     # Train!
     trainer.train()
-
-
-def print_config(conf: DictConfig):
-    """Print configuration summary."""
-    print("\n=== Configuration ===")
-
-    # Task info
-    if len(conf.tasks) == 1:
-        print(f"Training: Single-task ({conf.tasks[0].task_type})")
-    else:
-        trainer_type = conf.get('trainer_type', 'parallel')
-        print(f"Training: Multi-task ({trainer_type})")
-
-    print(f"Tasks: {len(conf.tasks)}")
-    trainer_type = conf.get('trainer_type', 'parallel')
-    for i, spec in enumerate(conf.tasks):
-        if trainer_type == 'parallel':
-            info = f"weight={spec.weight:.2f}"
-        else:
-            info = f"steps={spec.num_steps}"
-        print(f"  {i+1}. {spec.task_type} ({info})")
-
-    # Total steps
-    if trainer_type == 'parallel':
-        total = conf.training.get('total_steps', 10000)
-    else:
-        total = sum(s.num_steps for s in conf.tasks)
-    print(f"Total steps: {total}")
-
-    # Sequential-specific info
-    if trainer_type in ['sequential', 'orthogonal_sequential']:
-        reset_opt = conf.training.get('reset_optimizer_between_tasks', False)
-        print(f"Reset optimizer: {reset_opt}")
-        if trainer_type == 'orthogonal_sequential':
-            alpha = conf.training.get('alpha_projection', 0.001)
-            print(f"Orthogonal projection: alpha={alpha}")
-
-    # Model/training info
-    model_type = conf.model.get('model_type', 'rnn')
-    if model_type == 'rnn':
-        print(f"Model: RNN, input={conf.model.get('input_size', 5)}, hidden={conf.model.get('hidden_size', 128)}")
-    elif model_type == 'modular_rnn':
-        h1 = conf.model.get('hidden_size_1', 64)
-        h2 = conf.model.get('hidden_size_2', 64)
-        tau1 = conf.model.get('tau_1', 300)
-        tau2 = conf.model.get('tau_2', 100)
-        rank_pct = conf.model.get('cross_module_rank_pct', 0.1)
-        print(f"Model: ModularRNN, input={conf.model.get('input_size', 5)}, hidden=[{h1}, {h2}], tau=[{tau1}, {tau2}], rank={rank_pct:.1%}")
-    optimizer_type = conf.training.get('optimizer_type', 'adam')
-    lr = conf.training.get('learning_rate', 1e-3)
-    batch = conf.training.get('batch_size', 32)
-    print(f"Training: optimizer={optimizer_type}, lr={lr}, batch={batch}")
-    print(f"Log dir: {conf.training.get('log_dir', 'logs')}")
-    print("====================\n")
 
 
 if __name__ == '__main__':

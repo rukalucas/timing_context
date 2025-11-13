@@ -1,6 +1,7 @@
 """Sequential trainer - trains tasks one after another."""
 
 import torch.optim as optim
+import wandb
 from pathlib import Path
 from typing import Optional
 
@@ -60,29 +61,6 @@ class SequentialTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
-        # Initialize CSV with all expected fields (only for tasks with eval=True)
-        csv_fields = []
-        for task, task_name, eval_flag in zip(self.tasks, self.task_names, self.task_eval_flags):
-            if not eval_flag:
-                continue
-            # Get metric names from task class attribute
-            for metric_name in task.metric_names:
-                csv_fields.append(f'{task_name}/{metric_name}')
-
-        # Add sequential training fields
-        csv_fields.append('loss')
-        csv_fields.append('train/current_task_idx')
-
-        # Add scheduled parameter fields if they exist
-        for schedule in self.task_param_schedules:
-            if schedule is not None:
-                param_name = schedule['param_name']
-                field_name = f'train/{param_name}'
-                if field_name not in csv_fields:
-                    csv_fields.append(field_name)
-
-        self._init_csv(csv_fields)
-
     def _update_task_parameter(self) -> None:
         """Update task parameter based on schedule for current task."""
         schedule = self.task_param_schedules[self.current_task_idx]
@@ -139,8 +117,15 @@ class SequentialTrainer(BaseTrainer):
         print(f"Evaluation after step {self.step}: " +
               ", ".join([f"{k}={v:.4f}" for k, v in all_metrics.items()]))
 
-        # Log all metrics
-        self.log_metrics(all_metrics, self.step)
+        # Log metrics to wandb
+        wandb.log(all_metrics, step=self.step)
+
+        # Save latest checkpoint
+        extra_state = {
+            'current_task_idx': self.current_task_idx,
+            'current_task_step': self.current_task_step
+        }
+        self.save_checkpoint(filename='latest.pt', extra_state=extra_state)
 
     def save_checkpoint(self, filename: str = 'checkpoint.pt') -> None:
         """Save model checkpoint with curriculum state."""
@@ -191,9 +176,6 @@ class SequentialTrainer(BaseTrainer):
         print(f"Reset optimizer between tasks: {self.reset_optimizer_between_tasks}")
         print(f"Log directory: {self.log_dir}")
 
-        # Launch TensorBoard
-        self.launch_tensorboard()
-
         # Train each task sequentially
         for task_idx, (task_name, num_steps) in enumerate(zip(self.task_names, self.task_num_steps)):
             print(f"\n{'='*60}")
@@ -230,10 +212,7 @@ class SequentialTrainer(BaseTrainer):
 
                 # Checkpointing
                 if (self.step % self.checkpoint_interval == 0):
-                    self.save_checkpoint(f'checkpoint_step_{self.step}.pt')
-
-            # Save checkpoint after completing each task
-            self.save_checkpoint(f'checkpoint_after_{task_name}.pt')
+                    self.save_checkpoint(f'{self.step}.pt')
 
             # Advance to next task
             if task_idx < len(self.tasks) - 1:
@@ -243,8 +222,6 @@ class SequentialTrainer(BaseTrainer):
                     print(f"Resetting optimizer for task {self.task_names[self.current_task_idx]}")
                     self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
-        # Final checkpoint
-        self.save_checkpoint('checkpoint_final.pt')
         print("\nTraining complete!")
 
         self.close()
