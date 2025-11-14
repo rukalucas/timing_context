@@ -168,22 +168,56 @@ class SequentialTrainer(BaseTrainer):
         """
         total_steps = sum(self.task_num_steps)
 
-        if self.started_from_checkpoint:
+        # Calculate remaining steps if resuming
+        if self.step > 0 and not self.started_from_checkpoint:
+            # Resuming - calculate remaining steps
+            steps_remaining = total_steps - self.step
+            final_step = total_steps
+            print(f"\nResuming sequential multi-task training for {steps_remaining} remaining steps (step {self.step} → {final_step})...")
+        elif self.started_from_checkpoint:
             print("\nStarting training from checkpoint initialization...")
             print(f"Model weights loaded, training {total_steps} steps from scratch")
         else:
-            print(f"Starting sequential multi-task training for {total_steps} total steps...")
+            print(f"\nStarting sequential multi-task training for {total_steps} total steps...")
 
         print(f"Tasks: {self.task_names}")
         print(f"Steps per task: {self.task_num_steps}")
         print(f"Reset optimizer between tasks: {self.reset_optimizer_between_tasks}")
         print(f"Log directory: {self.log_dir}")
 
-        # Train each task sequentially
-        for task_idx, (task_name, num_steps) in enumerate(zip(self.task_names, self.task_num_steps)):
+        # Save initial task/step for resuming (if applicable)
+        initial_task_idx = self.current_task_idx
+        initial_task_step = self.current_task_step
+
+        # Train each task sequentially, starting from current task if resuming
+        for task_idx in range(initial_task_idx, len(self.tasks)):
+            task_name = self.task_names[task_idx]
+            num_steps = self.task_num_steps[task_idx]
+
+            # Update current task index
+            self.current_task_idx = task_idx
+
+            # Determine starting step within this task
+            if task_idx == initial_task_idx:
+                # Resuming this task - start from where we left off
+                starting_step = initial_task_step
+                self.current_task_step = initial_task_step
+            else:
+                # New task - start from beginning
+                starting_step = 0
+                self.current_task_step = 0
+
+                # Reset optimizer if configured to do so
+                if self.reset_optimizer_between_tasks:
+                    print(f"Resetting optimizer for task {task_name}")
+                    self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+
             print(f"\n{'='*60}")
             print(f"Starting task {task_idx+1}/{len(self.tasks)}: {task_name}")
-            print(f"Training for {num_steps} steps...")
+            if starting_step > 0:
+                print(f"Resuming from step {starting_step}/{num_steps}...")
+            else:
+                print(f"Training for {num_steps} steps...")
 
             # Print schedule info if exists
             schedule = self.task_param_schedules[task_idx]
@@ -193,7 +227,7 @@ class SequentialTrainer(BaseTrainer):
             print(f"{'='*60}\n")
 
             loss = None  # Initialize for first eval
-            for local_step in range(num_steps):
+            for local_step in range(starting_step, num_steps):
                 # Evaluation and logging (before training step)
                 if self.current_task_step % self.log_interval == 0:
                     self.eval(loss)
@@ -214,16 +248,8 @@ class SequentialTrainer(BaseTrainer):
                 self.current_task_step += 1
 
                 # Checkpointing
-                if (self.step % self.checkpoint_interval == 0):
+                if self.step % self.checkpoint_interval == 0:
                     self.save_checkpoint(f'{self.step}.pt')
-
-            # Advance to next task
-            if task_idx < len(self.tasks) - 1:
-                self.current_task_idx += 1
-                self.current_task_step = 0
-                if self.reset_optimizer_between_tasks and self.current_task_idx < len(self.tasks):
-                    print(f"Resetting optimizer for task {self.task_names[self.current_task_idx]}")
-                    self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         print("\nTraining complete!")
 

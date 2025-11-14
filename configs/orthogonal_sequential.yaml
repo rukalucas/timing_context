@@ -8,8 +8,6 @@ wandb:
   project: "timing_context"
   offline: false  # Set to true for offline mode
 
-start_from: logs/sequential_multitask/checkpoint_after_instructed.pt
-
 tasks:
   - task_type: instructed # start from pretrained
     num_steps: 1000
@@ -34,6 +32,9 @@ training:
   checkpoint_interval: 500
   log_dir: logs/orthogonal
   optimizer_type: adam
+  # Checkpoint parameters
+  from_checkpoint: logs/sequential_multitask/checkpoint_after_instructed.pt
+  resume: false  # Use checkpoint as initialization, not resuming
   # Trainer-specific parameters
   reset_optimizer_between_tasks: true
   alpha_projection: 0.001

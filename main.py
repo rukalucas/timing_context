@@ -21,7 +21,7 @@ def create_tasks(conf: DictConfig) -> list:
     for task_spec in conf.tasks:
         task_type = task_spec.task_type
         assert task_type in task_name_to_class, f"Unknown task_type: {task_type}"
-        task = task_name_to_class[task_type](**task_spec.task)
+        task = task_name_to_class[task_type](**task_spec.get('task', {}))
         tasks.append((task, task_type))
     return tasks
 
@@ -137,8 +137,24 @@ def main():
     """Main training script with OmegaConf CLI interface.
 
     Usage:
+        # Fresh training
         python main.py configs/instructed.yaml
+
+        # With parameter overrides
         python main.py configs/instructed.yaml model.hidden_size=256 training.total_steps=1000
+
+        # Load checkpoint as initialization (new wandb run, step=0)
+        python main.py configs/instructed.yaml training.from_checkpoint=path/to/checkpoint.pt
+
+        # Resume from checkpoint (continue same wandb run and step count)
+        # New checkpoints (with wandb_run_id saved):
+        python main.py configs/instructed.yaml training.from_checkpoint=path/to/checkpoint.pt training.resume=true
+
+        # Resume from old checkpoint (without wandb_run_id, manually specify run ID):
+        python main.py configs/instructed.yaml \
+            training.from_checkpoint=path/to/old_checkpoint.pt \
+            training.resume=true \
+            training.resume_run_id=abc123xyz
     """
     # Parse CLI
     if len(sys.argv) < 2 or '=' in sys.argv[1]:
@@ -164,21 +180,22 @@ def main():
     # Setup log directory
     log_dir = Path(conf.training.get('log_dir', 'logs/test'))
 
-    # Check if log_dir exists and get user confirmation
-    if not check_log_dir_exists(log_dir):
+    # Check if log_dir exists and get user confirmation (skip if resuming)
+    resume = conf.training.get('resume', False)
+    if not resume and not check_log_dir_exists(log_dir):
         sys.exit(1)
 
     log_dir.mkdir(parents=True, exist_ok=True)
-    OmegaConf.save(conf, log_dir / 'config.yaml')
+
+    # Save config (skip if resuming - preserve original config)
+    if not resume:
+        OmegaConf.save(conf, log_dir / 'config.yaml')
+    else:
+        print(f"Resuming run - using existing config from {log_dir / 'config.yaml'}")
 
     # Create model and trainer using factory functions
     model = create_model(conf)
     trainer = create_trainer(conf, model)
-
-    # Load checkpoint if requested
-    start_from = conf.get('start_from')
-    if start_from is not None:
-        trainer.load_checkpoint(start_from, reset_counters=True)
 
     # Train!
     trainer.train()

@@ -1,4 +1,4 @@
-# instructed (start_from) -> transition (rule_cue_prob 0.9->0.0 gradually)
+# instructed (from_checkpoint) -> transition (rule_cue_prob 0.9->0.0 gradually)
 
 trainer_type: sequential
 random_seed: 42
@@ -48,5 +48,6 @@ training:
   optimizer_type: adam
   # weight_decay: 1e-4 # for adamw
   clip_grad_norm: 1.0 # clip recurrent weight grad
-
-start_from: logs/instructed/checkpoint_final.pt
+  # Checkpoint parameters
+  from_checkpoint: logs/instructed/checkpoint_final.pt
+  resume: false  # Use checkpoint as initialization, not resuming

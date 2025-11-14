@@ -26,7 +26,10 @@ class BaseTrainer:
         optimizer_type: str = 'adam',
         weight_decay: float = 0.01,
         clip_grad_norm: Optional[float] = None,
-        config: Optional[dict] = None
+        config: Optional[dict] = None,
+        from_checkpoint: Optional[str | Path] = None,
+        resume: bool = False,
+        resume_run_id: Optional[str] = None
     ):
         """Initialize base trainer.
 
@@ -41,6 +44,9 @@ class BaseTrainer:
             weight_decay: Weight decay for AdamW optimizer (default 0.01)
             clip_grad_norm: Maximum gradient norm for clipping (None to disable)
             config: Full configuration dict (will extract wandb config and log full config to wandb)
+            from_checkpoint: Path to checkpoint file to load (optional)
+            resume: If True, resume the wandb run from checkpoint (requires wandb_run_id in checkpoint or resume_run_id)
+            resume_run_id: Manually specify wandb run ID for resuming (for old checkpoints without wandb_run_id)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -64,6 +70,31 @@ class BaseTrainer:
 
         self.criterion = nn.MSELoss(reduction='none')
 
+        # If resuming, load checkpoint early to get wandb_run_id
+        wandb_run_id = None
+        if resume:
+            if from_checkpoint is None:
+                raise ValueError("Cannot resume without specifying from_checkpoint")
+            checkpoint_path = Path(from_checkpoint)
+            if not checkpoint_path.exists():
+                raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+            checkpoint = torch.load(checkpoint_path)
+
+            # Try to get run ID from checkpoint first, then from resume_run_id parameter
+            if 'wandb_run_id' in checkpoint:
+                wandb_run_id = checkpoint['wandb_run_id']
+                print(f"Resuming wandb run {wandb_run_id} from checkpoint {checkpoint_path}")
+            elif resume_run_id is not None:
+                wandb_run_id = resume_run_id
+                print(f"Resuming wandb run {wandb_run_id} (manually specified) from checkpoint {checkpoint_path}")
+            else:
+                raise ValueError(
+                    f"Cannot resume from checkpoint {checkpoint_path}: "
+                    "wandb_run_id not found in checkpoint and resume_run_id not provided. "
+                    "For old checkpoints, specify resume_run_id parameter with the wandb run ID."
+                )
+
         # Wandb logging (always enabled)
         if config and 'wandb' in config:
             wandb_config = config['wandb']
@@ -83,7 +114,15 @@ class BaseTrainer:
             if wandb_config.get('offline', False):
                 init_kwargs['mode'] = 'offline'
 
+            # If resuming, add run ID and resume mode
+            if resume:
+                init_kwargs['id'] = wandb_run_id
+                init_kwargs['resume'] = 'must'
+
             wandb.init(**init_kwargs)
+
+            # Define summary metrics
+            wandb.define_metric("loss", summary="min")
 
             # Log SLURM information if running on SLURM
             if 'SLURM_JOB_ID' in os.environ:
@@ -120,6 +159,12 @@ class BaseTrainer:
 
         # Training state
         self.step = 0
+
+        # Load checkpoint if provided
+        if from_checkpoint is not None:
+            # resume=True: continue from checkpoint step (reset_counters=False)
+            # resume=False: use as initialization, reset to step 0 (reset_counters=True)
+            self.load_checkpoint(from_checkpoint, reset_counters=(not resume))
 
     def train_step(self, batch: list, task: BaseTask) -> float:
         """Unified training step for both single-trial and sequence tasks.
@@ -382,6 +427,7 @@ class BaseTrainer:
             'step': self.step,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'wandb_run_id': wandb.run.id,
         }
         if extra_state:
             state.update(extra_state)
@@ -423,9 +469,9 @@ class BaseTrainer:
             self.step = checkpoint['step']
             print(f"Loaded checkpoint from {checkpoint_path} (resuming from step {self.step})")
 
-        # Extract extra state
+        # Extract extra state (anything beyond base trainer state)
         extra_state = {k: v for k, v in checkpoint.items()
-                      if k not in ['step', 'model_state_dict', 'optimizer_state_dict']}
+                      if k not in ['step', 'model_state_dict', 'optimizer_state_dict', 'wandb_run_id']}
 
         return extra_state
 

@@ -58,6 +58,11 @@ class ParallelTrainer(BaseTrainer):
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
+        # Define summary metrics for accuracy (max)
+        for task_name in task_names:
+            wandb.define_metric(f"{task_name}/decision_accuracy", summary="max")
+            wandb.define_metric(f"{task_name}/rule_accuracy", summary="max")
+
     def eval(self, task_idx: int, loss: Optional[float] = None) -> None:
         """Evaluate all tasks with eval=True, log scalars and figures.
 
@@ -119,12 +124,18 @@ class ParallelTrainer(BaseTrainer):
         self,
     ) -> None:
         """Main training loop for parallel (or single-task) training."""
+        # Determine if resuming
+        starting_step = self.step
+        final_step = starting_step + self.total_steps
+
+        if starting_step > 0:
+            print(f"Resuming training for {self.total_steps} steps (step {starting_step} → {final_step})...")
+        else:
+            print(f"Starting training for {self.total_steps} steps...")
         if self.multi_task:
-            print(f"Starting parallel multi-task training for {self.total_steps} steps...")
             print(f"Tasks: {self.task_names}")
             print(f"Task weights: {self.task_weights}")
         else:
-            print(f"Starting training for {self.total_steps} steps...")
             print(f"Task: {self.task_names[0]}")
 
         print(f"Log directory: {self.log_dir}")
@@ -158,8 +169,8 @@ class ParallelTrainer(BaseTrainer):
             self.task_step_counts[task_idx] += 1
 
             # Checkpointing
-            if (step + 1) % self.checkpoint_interval == 0:
-                self.save_checkpoint(f'{step+1}.pt')
+            if self.step % self.checkpoint_interval == 0:
+                self.save_checkpoint(f'{self.step}.pt')
 
         print("Training complete!")
 
