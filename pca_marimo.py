@@ -22,7 +22,7 @@ def __():
     import numpy as np
     import matplotlib.pyplot as plt
 
-    from tasks import InstructedTimingTask, SequenceInstructedTask
+    from tasks import SingleTrialTask
     from models.rnn import RNN
     from analysis import (
         generate_data,
@@ -35,9 +35,8 @@ def __():
 
     plt.rcParams['figure.dpi'] = 100
     return (
-        InstructedTimingTask,
         RNN,
-        SequenceInstructedTask,
+        SingleTrialTask,
         animate_pca,
         compute_psychometric_curves,
         do_pca,
@@ -60,7 +59,7 @@ def __(mo):
 def __(mo):
     # Configuration controls
     checkpoint_selector = mo.ui.text(
-        value='logs/transition_to_inferred/checkpoint_step_3200.pt',
+        value='logs/single_trial/checkpoints/2000.pt',
         label='Checkpoint path:'
     )
 
@@ -72,45 +71,33 @@ def __(mo):
         label='Number of trials to generate:'
     )
 
-    trials_per_seq_slider = mo.ui.slider(
-        start=10,
-        stop=100,
-        step=10,
-        value=40,
-        label='Trials per sequence:'
-    )
-
-    mo.vstack([checkpoint_selector, num_trials_slider, trials_per_seq_slider])
+    mo.vstack([checkpoint_selector, num_trials_slider])
     return (
         checkpoint_selector,
         num_trials_slider,
-        trials_per_seq_slider,
     )
 
 
 @app.cell
 def __(
     RNN,
-    SequenceInstructedTask,
+    SingleTrialTask,
     checkpoint_selector,
     generate_data,
     mo,
     np,
     torch,
-    trials_per_seq_slider,
     num_trials_slider,
 ):
     checkpoint_path = checkpoint_selector.value
     num_trials = num_trials_slider.value
-    trials_per_sequence = trials_per_seq_slider.value
 
     try:
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
 
-        task = SequenceInstructedTask(
+        task = SingleTrialTask(
             w_m=0.05,
             input_noise_std=0.05,
-            trials_per_sequence=trials_per_sequence
         )
 
         model = RNN(
@@ -133,7 +120,7 @@ def __(
         **Model loaded successfully!**
         - Checkpoint step: {checkpoint['step']}
         - Hidden units: {model.hidden_size}
-        - Trials per sequence: {task.trials_per_sequence}
+        - Task: {task.name}
         - Generated trials: {num_trials}
         - Rule 1 count: {(rules == 1).sum()}, Rule 2 count: {(rules == -1).sum()}
         """)
@@ -155,7 +142,6 @@ def __(
         rules,
         setup_status,
         task,
-        trials_per_sequence,
     )
 
 
@@ -225,8 +211,7 @@ def __(data_dict, mo, plt, task, trial_idx):
             loss_mask=trial_loss_mask,
         )
 
-        trial_plot = mo.ui.pyplot(trial_fig)
-        plt.close(trial_fig)
+        trial_plot = trial_fig
     else:
         trial_plot = mo.md("*Load data first*")
 
@@ -304,7 +289,6 @@ def __(
     n_components_slider,
     num_trials_pca_slider,
     plot_3d_checkbox,
-    plt,
     task,
     visualize_pca,
 ):
@@ -331,8 +315,7 @@ def __(
         - Axis labels: {result_full['axis_labels']}
         """)
 
-        pca_plot = mo.ui.pyplot(pca_plot_fig)
-        plt.close(pca_plot_fig)
+        pca_plot = pca_plot_fig
     else:
         result_full = None
         pca_plot = mo.md("*Load data first*")
@@ -374,7 +357,6 @@ def __(
     mo,
     n_components_cross_slider,
     plot_cross_period_variance,
-    plt,
     task,
 ):
     if data_dict is not None and task is not None:
@@ -384,8 +366,7 @@ def __(
             n_components=n_components_cross_slider.value,
         )
 
-        cross_period_plot = mo.ui.pyplot(cross_period_fig)
-        plt.close(cross_period_fig)
+        cross_period_plot = cross_period_fig
     else:
         cross_period_plot = mo.md("*Load data first*")
 
@@ -465,8 +446,7 @@ def __(
         psycho_ax.grid(True, alpha=0.3)
         psycho_fig.tight_layout()
 
-        psycho_plot = mo.ui.pyplot(psycho_fig)
-        plt.close(psycho_fig)
+        psycho_plot = psycho_fig
     else:
         psycho_results = None
         psycho_plot = mo.md("*Load data first*")
@@ -564,8 +544,7 @@ def __(
         - Top 10 PCs explain: {cumulative_var[9]:.1f}% of variance
         """)
 
-        var_plot = mo.ui.pyplot(var_fig)
-        plt.close(var_fig)
+        var_plot = var_fig
     else:
         result_dims = None
         var_summary = mo.md("*Load data first*")
