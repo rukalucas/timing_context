@@ -58,6 +58,9 @@ class SequentialTrainer(BaseTrainer):
         self.current_task_step = 0
         self.started_from_checkpoint = False  # Track if we loaded from checkpoint
 
+        # Validate dt consistency between model and tasks
+        assert all(task.dt == model.dt for task in tasks), f"All tasks must have same dt as model (model.dt={model.dt})"
+
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 

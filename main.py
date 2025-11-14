@@ -21,8 +21,6 @@ def create_tasks(conf: DictConfig) -> list:
     for task_spec in conf.tasks:
         task_type = task_spec.task_type
         assert task_type in task_name_to_class, f"Unknown task_type: {task_type}"
-        assert conf.model.dt == task_spec.task.get('dt', 10), f"Task {task_type} dt must match model dt"
-        # Unpack DictConfig directly
         task = task_name_to_class[task_type](**task_spec.task)
         tasks.append((task, task_type))
     return tasks

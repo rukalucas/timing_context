@@ -31,3 +31,4 @@ training:
   checkpoint_interval: 500
   log_dir: logs/parallel_multitask
   total_steps: 4000
+  optimizer_type: adam

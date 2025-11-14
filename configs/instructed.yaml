@@ -25,4 +25,5 @@ training:
   num_eval_samples: 128
   checkpoint_interval: 500
   log_dir: logs/instructed
+  optimizer_type: adam
   clip_grad_norm: 1.0

@@ -33,6 +33,7 @@ training:
   num_eval_samples: 128
   checkpoint_interval: 500
   log_dir: logs/orthogonal
+  optimizer_type: adam
   # Trainer-specific parameters
   reset_optimizer_between_tasks: true
   alpha_projection: 0.001

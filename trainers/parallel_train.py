@@ -52,6 +52,9 @@ class ParallelTrainer(BaseTrainer):
         self.total_steps = total_steps
         self.multi_task = len(self.tasks) > 1
 
+        # Validate dt consistency between model and tasks
+        assert all(task.dt == model.dt for task in tasks), f"All tasks must have same dt as model (model.dt={model.dt})"
+
         # Generate fixed eval batches for each task
         self.eval_batches = [task.generate_batch(num_eval_samples) for task in tasks]
 
