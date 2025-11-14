@@ -22,8 +22,7 @@ def __():
     import numpy as np
     import matplotlib.pyplot as plt
     import plotly.express as px
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
+    import pandas as pd
 
     from tasks import SingleTrialTask
     from models.rnn import RNN
@@ -44,9 +43,8 @@ def __():
         compute_psychometric_curves,
         do_pca,
         generate_data,
-        go,
-        make_subplots,
         np,
+        pd,
         plot_cross_period_variance,
         plt,
         px,
@@ -409,10 +407,11 @@ def __(mo):
 @app.cell
 def __(
     compute_psychometric_curves,
-    go,
     model,
     mo,
     num_trials_per_interval_slider,
+    pd,
+    px,
     task,
 ):
     if model is not None and task is not None:
@@ -424,22 +423,36 @@ def __(
             rules=[1, -1]
         )
 
-        # Create plotly figure
-        psycho_fig = go.Figure()
+        # Prepare data for plotly express
+        intervals_list = []
+        probs_list = []
+        rule_list = []
 
-        # Add traces for each rule
         for rule in [1, -1]:
             rule_label = 'C1' if rule == 1 else 'C2'
             anti_probs = psycho_results['anti_probs'][rule]
-            psycho_fig.add_trace(go.Scatter(
-                x=psycho_results['intervals'],
-                y=anti_probs,
-                mode='lines+markers',
-                name=f'{rule_label} rule',
-                line=dict(width=2)
-            ))
+            intervals_list.extend(psycho_results['intervals'])
+            probs_list.extend(anti_probs)
+            rule_list.extend([rule_label] * len(psycho_results['intervals']))
 
-        # Add horizontal line at 0.5
+        df_psycho = pd.DataFrame({
+            'Interval (ms)': intervals_list,
+            'P(Anti saccade)': probs_list,
+            'Rule': rule_list
+        })
+
+        # Create plotly express figure
+        psycho_fig = px.line(
+            df_psycho,
+            x='Interval (ms)',
+            y='P(Anti saccade)',
+            color='Rule',
+            markers=True,
+            title='Psychometric Curves',
+            template='plotly_white'
+        )
+
+        # Add reference lines
         psycho_fig.add_hline(
             y=0.5,
             line_dash="dash",
@@ -447,7 +460,6 @@ def __(
             opacity=0.5
         )
 
-        # Add vertical line at threshold
         psycho_fig.add_vline(
             x=task.decision_threshold,
             line_dash="dash",
@@ -457,13 +469,8 @@ def __(
             annotation_position="top right"
         )
 
-        psycho_fig.update_layout(
-            title='Psychometric Curves',
-            xaxis_title='Interval (ms)',
-            yaxis_title='P(Anti saccade)',
-            hovermode='x unified',
-            template='plotly_white'
-        )
+        psycho_fig.update_traces(line=dict(width=2))
+        psycho_fig.update_layout(hovermode='x unified')
 
         psycho_plot = psycho_fig
     else:
@@ -504,11 +511,11 @@ def __(mo):
 def __(
     data_dict,
     do_pca,
-    go,
-    make_subplots,
     mo,
     n_components_var_slider,
     np,
+    pd,
+    px,
     task,
 ):
     if data_dict is not None and task is not None:
@@ -526,70 +533,54 @@ def __(
         cumulative_var = np.cumsum(var_explained_pct)
         x = np.arange(1, len(var_explained_pct) + 1)
 
-        # Create subplots
-        var_fig = make_subplots(
-            rows=1, cols=2,
-            subplot_titles=('Variance Explained by Each PC', 'Cumulative Variance Explained')
-        )
+        # Create DataFrame for plotting
+        df_var = pd.DataFrame({
+            'Component': x,
+            'Individual Variance (%)': var_explained_pct,
+            'Cumulative Variance (%)': cumulative_var
+        })
 
         # Bar plot of variance explained
-        var_fig.add_trace(
-            go.Bar(
-                x=x,
-                y=var_explained_pct,
-                name='Individual variance',
-                opacity=0.7,
-                showlegend=False
-            ),
-            row=1, col=1
+        var_fig1 = px.bar(
+            df_var,
+            x='Component',
+            y='Individual Variance (%)',
+            title='Variance Explained by Each PC',
+            template='plotly_white'
         )
+        var_fig1.update_traces(opacity=0.7)
 
         # Cumulative variance plot
-        var_fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=cumulative_var,
-                mode='lines+markers',
-                name='Cumulative variance',
-                line=dict(width=2),
-                marker=dict(size=4),
-                showlegend=False
-            ),
-            row=1, col=2
+        var_fig2 = px.line(
+            df_var,
+            x='Component',
+            y='Cumulative Variance (%)',
+            title='Cumulative Variance Explained',
+            markers=True,
+            template='plotly_white'
         )
 
-        # Add reference lines for 90% and 95% on cumulative plot
-        var_fig.add_hline(
+        # Add reference lines for 90% and 95%
+        var_fig2.add_hline(
             y=90,
             line_dash="dash",
             line_color="red",
             opacity=0.5,
             annotation_text="90% variance",
-            annotation_position="right",
-            row=1, col=2
+            annotation_position="right"
         )
 
-        var_fig.add_hline(
+        var_fig2.add_hline(
             y=95,
             line_dash="dash",
             line_color="orange",
             opacity=0.5,
             annotation_text="95% variance",
-            annotation_position="right",
-            row=1, col=2
+            annotation_position="right"
         )
 
-        # Update axes
-        var_fig.update_xaxes(title_text="Principal Component", row=1, col=1)
-        var_fig.update_yaxes(title_text="Variance Explained (%)", row=1, col=1)
-        var_fig.update_xaxes(title_text="Number of Components", row=1, col=2)
-        var_fig.update_yaxes(title_text="Cumulative Variance Explained (%)", range=[0, 105], row=1, col=2)
-
-        var_fig.update_layout(
-            height=400,
-            template='plotly_white',
-            showlegend=False
-        )
+        var_fig2.update_yaxes(range=[0, 105])
+        var_fig2.update_traces(line=dict(width=2), marker=dict(size=4))
 
         # Summary statistics
         n_90 = np.argmax(cumulative_var >= 90) + 1 if np.any(cumulative_var >= 90) else len(cumulative_var)
@@ -603,22 +594,24 @@ def __(
         - Top 10 PCs explain: {cumulative_var[9]:.1f}% of variance
         """)
 
-        var_plot = var_fig
+        var_plots = mo.hstack([var_fig1, var_fig2])
     else:
         result_dims = None
         var_summary = mo.md("*Load data first*")
-        var_plot = mo.md("")
+        var_plots = mo.md("")
 
-    mo.vstack([var_summary, var_plot])
+    mo.vstack([var_summary, var_plots])
     return (
         cumulative_var,
+        df_var,
         n_90,
         n_95,
         result_dims,
         var_explained,
         var_explained_pct,
-        var_fig,
-        var_plot,
+        var_fig1,
+        var_fig2,
+        var_plots,
         var_summary,
         x,
     )
