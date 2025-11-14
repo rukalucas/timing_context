@@ -21,6 +21,9 @@ def __():
     import torch
     import numpy as np
     import matplotlib.pyplot as plt
+    import plotly.express as px
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     from tasks import SingleTrialTask
     from models.rnn import RNN
@@ -41,9 +44,12 @@ def __():
         compute_psychometric_curves,
         do_pca,
         generate_data,
+        go,
+        make_subplots,
         np,
         plot_cross_period_variance,
         plt,
+        px,
         torch,
         visualize_pca,
     )
@@ -403,10 +409,10 @@ def __(mo):
 @app.cell
 def __(
     compute_psychometric_curves,
+    go,
     model,
     mo,
     num_trials_per_interval_slider,
-    plt,
     task,
 ):
     if model is not None and task is not None:
@@ -418,33 +424,46 @@ def __(
             rules=[1, -1]
         )
 
-        # Plot
-        psycho_fig, psycho_ax = plt.subplots(1, 1, figsize=(6, 4))
+        # Create plotly figure
+        psycho_fig = go.Figure()
+
+        # Add traces for each rule
         for rule in [1, -1]:
             rule_label = 'C1' if rule == 1 else 'C2'
             anti_probs = psycho_results['anti_probs'][rule]
-            psycho_ax.plot(
-                psycho_results['intervals'],
-                anti_probs,
-                marker='o',
-                label=f'{rule_label} rule',
-                linewidth=2
-            )
+            psycho_fig.add_trace(go.Scatter(
+                x=psycho_results['intervals'],
+                y=anti_probs,
+                mode='lines+markers',
+                name=f'{rule_label} rule',
+                line=dict(width=2)
+            ))
 
-        psycho_ax.axhline(0.5, color='gray', linestyle='--', alpha=0.5)
-        psycho_ax.axvline(
-            task.decision_threshold,
-            color='gray',
-            linestyle='--',
-            alpha=0.5,
-            label=f'Threshold ({task.decision_threshold}ms)'
+        # Add horizontal line at 0.5
+        psycho_fig.add_hline(
+            y=0.5,
+            line_dash="dash",
+            line_color="gray",
+            opacity=0.5
         )
-        psycho_ax.set_xlabel('Interval (ms)')
-        psycho_ax.set_ylabel('P(Anti saccade)')
-        psycho_ax.set_title('Psychometric Curves')
-        psycho_ax.legend()
-        psycho_ax.grid(True, alpha=0.3)
-        psycho_fig.tight_layout()
+
+        # Add vertical line at threshold
+        psycho_fig.add_vline(
+            x=task.decision_threshold,
+            line_dash="dash",
+            line_color="gray",
+            opacity=0.5,
+            annotation_text=f'Threshold ({task.decision_threshold}ms)',
+            annotation_position="top right"
+        )
+
+        psycho_fig.update_layout(
+            title='Psychometric Curves',
+            xaxis_title='Interval (ms)',
+            yaxis_title='P(Anti saccade)',
+            hovermode='x unified',
+            template='plotly_white'
+        )
 
         psycho_plot = psycho_fig
     else:
@@ -452,7 +471,7 @@ def __(
         psycho_plot = mo.md("*Load data first*")
 
     psycho_plot
-    return psycho_ax, psycho_fig, psycho_plot, psycho_results
+    return psycho_fig, psycho_plot, psycho_results
 
 
 @app.cell(hide_code=True)
@@ -485,10 +504,11 @@ def __(mo):
 def __(
     data_dict,
     do_pca,
+    go,
+    make_subplots,
     mo,
     n_components_var_slider,
     np,
-    plt,
     task,
 ):
     if data_dict is not None and task is not None:
@@ -504,33 +524,72 @@ def __(
         var_explained = result_dims['explained_variance']
         var_explained_pct = 100 * var_explained / var_explained.sum()
         cumulative_var = np.cumsum(var_explained_pct)
+        x = np.arange(1, len(var_explained_pct) + 1)
 
-        # Plot
-        var_fig, var_axes = plt.subplots(1, 2, figsize=(12, 4))
+        # Create subplots
+        var_fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('Variance Explained by Each PC', 'Cumulative Variance Explained')
+        )
 
         # Bar plot of variance explained
-        var_ax = var_axes[0]
-        x = np.arange(1, len(var_explained_pct) + 1)
-        var_ax.bar(x, var_explained_pct, alpha=0.7)
-        var_ax.set_xlabel('Principal Component')
-        var_ax.set_ylabel('Variance Explained (%)')
-        var_ax.set_title('Variance Explained by Each PC')
-        var_ax.set_xticks(x[::2])  # Show every other tick
-        var_ax.grid(True, alpha=0.3, axis='y')
+        var_fig.add_trace(
+            go.Bar(
+                x=x,
+                y=var_explained_pct,
+                name='Individual variance',
+                opacity=0.7,
+                showlegend=False
+            ),
+            row=1, col=1
+        )
 
         # Cumulative variance plot
-        var_ax = var_axes[1]
-        var_ax.plot(x, cumulative_var, marker='o', linewidth=2, markersize=4)
-        var_ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% variance')
-        var_ax.axhline(95, color='orange', linestyle='--', alpha=0.5, label='95% variance')
-        var_ax.set_xlabel('Number of Components')
-        var_ax.set_ylabel('Cumulative Variance Explained (%)')
-        var_ax.set_title('Cumulative Variance Explained')
-        var_ax.legend()
-        var_ax.grid(True, alpha=0.3)
-        var_ax.set_ylim([0, 105])
+        var_fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=cumulative_var,
+                mode='lines+markers',
+                name='Cumulative variance',
+                line=dict(width=2),
+                marker=dict(size=4),
+                showlegend=False
+            ),
+            row=1, col=2
+        )
 
-        var_fig.tight_layout()
+        # Add reference lines for 90% and 95% on cumulative plot
+        var_fig.add_hline(
+            y=90,
+            line_dash="dash",
+            line_color="red",
+            opacity=0.5,
+            annotation_text="90% variance",
+            annotation_position="right",
+            row=1, col=2
+        )
+
+        var_fig.add_hline(
+            y=95,
+            line_dash="dash",
+            line_color="orange",
+            opacity=0.5,
+            annotation_text="95% variance",
+            annotation_position="right",
+            row=1, col=2
+        )
+
+        # Update axes
+        var_fig.update_xaxes(title_text="Principal Component", row=1, col=1)
+        var_fig.update_yaxes(title_text="Variance Explained (%)", row=1, col=1)
+        var_fig.update_xaxes(title_text="Number of Components", row=1, col=2)
+        var_fig.update_yaxes(title_text="Cumulative Variance Explained (%)", range=[0, 105], row=1, col=2)
+
+        var_fig.update_layout(
+            height=400,
+            template='plotly_white',
+            showlegend=False
+        )
 
         # Summary statistics
         n_90 = np.argmax(cumulative_var >= 90) + 1 if np.any(cumulative_var >= 90) else len(cumulative_var)
@@ -556,8 +615,6 @@ def __(
         n_90,
         n_95,
         result_dims,
-        var_ax,
-        var_axes,
         var_explained,
         var_explained_pct,
         var_fig,
