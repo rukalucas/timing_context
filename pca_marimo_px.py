@@ -13,13 +13,11 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     # Neural Trajectory Analysis - Interactive Notebook
 
     Explore RNN hidden state dynamics with PCA visualizations and analysis tools.
-    """
-    )
+    """)
     return
 
 
@@ -52,7 +50,9 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("## Setup: Load Model and Generate Data")
+    mo.md("""
+    ## Setup: Load Model and Generate Data
+    """)
     return
 
 
@@ -72,7 +72,15 @@ def _(mo):
 
 
 @app.cell
-def _(RNN, SingleTrialTask, checkpoint_path, generate_data, mo, num_trials, torch):
+def _(
+    RNN,
+    SingleTrialTask,
+    checkpoint_path,
+    generate_data,
+    mo,
+    num_trials,
+    torch,
+):
     try:
         checkpoint = torch.load(checkpoint_path.value, map_location="cpu")
 
@@ -100,12 +108,14 @@ def _(RNN, SingleTrialTask, checkpoint_path, generate_data, mo, num_trials, torc
         model = None
 
     setup_status
-    return checkpoint, data_dict, model, setup_status, task
+    return data_dict, model, task
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("## PCA Visualization")
+    mo.md("""
+    ## PCA Visualization
+    """)
     return
 
 
@@ -231,12 +241,14 @@ def _(
         mo.vstack([pca_info, mo.ui.plotly(pca_fig)])
     else:
         mo.md("*Load data first*")
-    return pca_fig, pca_info, pca_result, projection_val
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("## Segment-Based Visualization")
+    mo.md("""
+    ## Segment-Based Visualization
+    """)
     return
 
 
@@ -311,18 +323,16 @@ def _(
         mo.md("*Load data first*")
     else:
         mo.md("*Enable segment visualization to see segmented trajectories*")
-    return seg_fig, seg_result, segments
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     ## Cross-Period Variance Analysis
 
     How well do PCs from one period explain variance in other periods?
-    """
-    )
+    """)
     return
 
 
@@ -349,18 +359,16 @@ def _(data_dict, mo, n_comp_cross, plot_cross_period_variance, task):
         mo.ui.plotly(cross_fig)
     else:
         mo.md("*Load data first*")
-    return (cross_fig,)
+    return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        """
+    mo.md("""
     ## Variance Explained by Components
 
     How many principal components are needed to capture neural variance?
-    """
-    )
+    """)
     return
 
 
@@ -453,20 +461,7 @@ def _(data_dict, do_pca, mo, n_comp_var, np, task):
         )
     else:
         mo.md("*Load data first*")
-    return (
-        cumulative_var,
-        fig_bar,
-        fig_cum,
-        n_90,
-        n_95,
-        pd,
-        px,
-        var_explained,
-        var_explained_pct,
-        var_result,
-        var_summary,
-        x_vals,
-    )
+    return
 
 
 if __name__ == "__main__":
