@@ -135,21 +135,20 @@ class SequentialTrainer(BaseTrainer):
         # Log metrics to wandb
         wandb.log(all_metrics, step=self.step)
 
-        # Save latest checkpoint
-        extra_state = {
-            "current_task_idx": self.current_task_idx,
-            "current_task_step": self.current_task_step,
-        }
-        self.save_checkpoint(filename="latest.pt", extra_state=extra_state)
+        # Save latest checkpoint (curriculum state is added automatically)
+        self.save_checkpoint(filename="latest.pt")
 
-    def save_checkpoint(self, filename: str = "checkpoint.pt") -> None:
+    def save_checkpoint(self, filename: str = "checkpoint.pt", extra_state: Optional[dict] = None) -> None:
         """Save model checkpoint with curriculum state."""
-        extra_state = {
+        # Combine curriculum state with any provided extra_state
+        curriculum_state = {
             "current_task_idx": self.current_task_idx,
             "current_task_step": self.current_task_step,
         }
+        if extra_state is not None:
+            curriculum_state.update(extra_state)
 
-        super().save_checkpoint(filename=filename, extra_state=extra_state)
+        super().save_checkpoint(filename=filename, extra_state=curriculum_state)
 
     def load_checkpoint(
         self, path: str | Path = None, reset_counters: bool = False
