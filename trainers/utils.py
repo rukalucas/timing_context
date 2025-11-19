@@ -125,7 +125,7 @@ class BaseTrainer:
             # If resuming, add run ID and resume mode
             if resume:
                 init_kwargs["id"] = wandb_run_id
-                init_kwargs["resume"] = "must"
+                init_kwargs["resume"] = "allow"  # Allows overwriting data at same steps
 
             wandb.init(**init_kwargs)
 

@@ -44,6 +44,12 @@ class SequentialTrainer(BaseTrainer):
         if len(task_param_schedules) != len(tasks):
             raise ValueError("task_param_schedules must have same length as tasks")
 
+        # Sequential training state - initialize before super().__init__()
+        # so checkpoint loading can override these values
+        self.current_task_idx = 0
+        self.current_task_step = 0
+        self.started_from_checkpoint = False  # Track if we loaded from checkpoint
+
         # Pass common training parameters to base via kwargs
         super().__init__(model=model, learning_rate=learning_rate, **kwargs)
 
@@ -54,11 +60,6 @@ class SequentialTrainer(BaseTrainer):
         self.task_param_schedules = task_param_schedules
         self.reset_optimizer_between_tasks = reset_optimizer_between_tasks
         self.learning_rate = learning_rate
-
-        # Sequential training state
-        self.current_task_idx = 0
-        self.current_task_step = 0
-        self.started_from_checkpoint = False  # Track if we loaded from checkpoint
 
         # Validate dt consistency between model and tasks
         assert all(task.dt == model.dt for task in tasks), (
