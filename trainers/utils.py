@@ -30,6 +30,7 @@ class BaseTrainer:
         from_checkpoint: Optional[str | Path] = None,
         resume: bool = False,
         resume_run_id: Optional[str] = None,
+        fork: bool = False,
     ):
         """Initialize base trainer.
 
@@ -47,6 +48,7 @@ class BaseTrainer:
             from_checkpoint: Path to checkpoint file to load (optional)
             resume: If True, resume the wandb run from checkpoint (requires wandb_run_id in checkpoint or resume_run_id)
             resume_run_id: Manually specify wandb run ID for resuming (for old checkpoints without wandb_run_id)
+            fork: If True, fork from the wandb run at the checkpoint step (creates new run branching from original)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -74,34 +76,47 @@ class BaseTrainer:
 
         self.criterion = nn.MSELoss(reduction="none")
 
-        # If resuming, load checkpoint early to get wandb_run_id
+        # Validate that resume and fork are not both True
+        if resume and fork:
+            raise ValueError("Cannot use both resume=True and fork=True. Choose one.")
+
+        # If resuming or forking, load checkpoint early to get wandb_run_id and step
         wandb_run_id = None
-        if resume:
+        fork_from_str = None
+        checkpoint_step = None
+
+        if resume or fork:
             if from_checkpoint is None:
-                raise ValueError("Cannot resume without specifying from_checkpoint")
+                raise ValueError(
+                    f"Cannot {'resume' if resume else 'fork'} without specifying from_checkpoint"
+                )
             checkpoint_path = Path(from_checkpoint)
             if not checkpoint_path.exists():
                 raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
             checkpoint = torch.load(checkpoint_path)
+            checkpoint_step = checkpoint.get("step", 0)
 
             # Try to get run ID from checkpoint first, then from resume_run_id parameter
             if "wandb_run_id" in checkpoint:
                 wandb_run_id = checkpoint["wandb_run_id"]
-                print(
-                    f"Resuming wandb run {wandb_run_id} from checkpoint {checkpoint_path}"
-                )
+                source = "from checkpoint"
             elif resume_run_id is not None:
                 wandb_run_id = resume_run_id
-                print(
-                    f"Resuming wandb run {wandb_run_id} (manually specified) from checkpoint {checkpoint_path}"
-                )
+                source = "(manually specified)"
             else:
                 raise ValueError(
-                    f"Cannot resume from checkpoint {checkpoint_path}: "
+                    f"Cannot {'resume' if resume else 'fork'} from checkpoint {checkpoint_path}: "
                     "wandb_run_id not found in checkpoint and resume_run_id not provided. "
                     "For old checkpoints, specify resume_run_id parameter with the wandb run ID."
                 )
+
+            # Print status and prepare fork string if needed
+            if resume:
+                print(f"Resuming wandb run {wandb_run_id} {source} (checkpoint: {checkpoint_path})")
+            else:  # fork
+                fork_from_str = f"{wandb_run_id}?_step={checkpoint_step}"
+                print(f"Forking from wandb run {wandb_run_id} {source} at step {checkpoint_step} (checkpoint: {checkpoint_path})")
 
         # Wandb logging (always enabled)
         if config and "wandb" in config:
@@ -126,6 +141,9 @@ class BaseTrainer:
             if resume:
                 init_kwargs["id"] = wandb_run_id
                 init_kwargs["resume"] = "allow"  # Allows overwriting data at same steps
+            elif fork:
+                # Fork from the specified run and step
+                init_kwargs["fork_from"] = fork_from_str
 
             wandb.init(**init_kwargs)
 
@@ -184,9 +202,11 @@ class BaseTrainer:
 
         # Load checkpoint if provided
         if from_checkpoint is not None:
-            # resume=True: continue from checkpoint step (reset_counters=False)
-            # resume=False: use as initialization, reset to step 0 (reset_counters=True)
-            self.load_checkpoint(from_checkpoint, reset_counters=(not resume))
+            # resume=True or fork=True: continue from checkpoint step (reset_counters=False)
+            # resume=False and fork=False: use as initialization, reset to step 0 (reset_counters=True)
+            self.load_checkpoint(
+                from_checkpoint, reset_counters=(not resume and not fork)
+            )
 
     def train_step(self, batch: list, task: BaseTask) -> float:
         """Unified training step for both single-trial and sequence tasks.

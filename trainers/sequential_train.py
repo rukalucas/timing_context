@@ -139,7 +139,9 @@ class SequentialTrainer(BaseTrainer):
         # Save latest checkpoint (curriculum state is added automatically)
         self.save_checkpoint(filename="latest.pt")
 
-    def save_checkpoint(self, filename: str = "checkpoint.pt", extra_state: Optional[dict] = None) -> None:
+    def save_checkpoint(
+        self, filename: str = "checkpoint.pt", extra_state: Optional[dict] = None
+    ) -> None:
         """Save model checkpoint with curriculum state."""
         # Combine curriculum state with any provided extra_state
         curriculum_state = {
