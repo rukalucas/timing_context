@@ -195,14 +195,17 @@ def main():
     # Setup log directory
     log_dir = Path(conf.training.get("log_dir", "logs/test"))
 
-    # Check if log_dir exists and get user confirmation (skip if resuming)
+    # Check if log_dir exists and get user confirmation
+    # Skip for resume/rewind (continuing same run in same directory)
     resume = conf.training.get("resume", False)
-    if not resume and not check_log_dir_exists(log_dir):
+    rewind = conf.training.get("rewind", False)
+    if not resume and not rewind and not check_log_dir_exists(log_dir):
         sys.exit(1)
 
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Save config (skip if resuming - preserve original config)
+    # For rewind, save new config since we might be changing hyperparameters
     if not resume:
         OmegaConf.save(conf, log_dir / "config.yaml")
     else:

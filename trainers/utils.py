@@ -81,7 +81,9 @@ class BaseTrainer:
         # Validate that only one of resume/fork/rewind is True
         mode_count = sum([resume, fork, rewind])
         if mode_count > 1:
-            raise ValueError("Cannot use multiple modes simultaneously. Choose one of: resume, fork, or rewind.")
+            raise ValueError(
+                "Cannot use multiple modes simultaneously. Choose one of: resume, fork, or rewind."
+            )
 
         # If resuming, forking, or rewinding, load checkpoint early to get wandb_run_id and step
         wandb_run_id = None
@@ -91,8 +93,10 @@ class BaseTrainer:
 
         if resume or fork or rewind:
             if from_checkpoint is None:
-                mode_name = 'resume' if resume else ('fork' if fork else 'rewind')
-                raise ValueError(f"Cannot {mode_name} without specifying from_checkpoint")
+                mode_name = "resume" if resume else ("fork" if fork else "rewind")
+                raise ValueError(
+                    f"Cannot {mode_name} without specifying from_checkpoint"
+                )
             checkpoint_path = Path(from_checkpoint)
             if not checkpoint_path.exists():
                 raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -108,7 +112,7 @@ class BaseTrainer:
                 wandb_run_id = resume_run_id
                 source = "(manually specified)"
             else:
-                mode_name = 'resume' if resume else ('fork' if fork else 'rewind')
+                mode_name = "resume" if resume else ("fork" if fork else "rewind")
                 raise ValueError(
                     f"Cannot {mode_name} from checkpoint {checkpoint_path}: "
                     "wandb_run_id not found in checkpoint and resume_run_id not provided. "
@@ -117,13 +121,19 @@ class BaseTrainer:
 
             # Print status and prepare fork/rewind string if needed
             if resume:
-                print(f"Resuming wandb run {wandb_run_id} {source} (checkpoint: {checkpoint_path})")
+                print(
+                    f"Resuming wandb run {wandb_run_id} {source} (checkpoint: {checkpoint_path})"
+                )
             elif fork:
                 fork_from_str = f"{wandb_run_id}?_step={checkpoint_step}"
-                print(f"Forking from wandb run {wandb_run_id} {source} at step {checkpoint_step} (checkpoint: {checkpoint_path})")
+                print(
+                    f"Forking from wandb run {wandb_run_id} {source} at step {checkpoint_step} (checkpoint: {checkpoint_path})"
+                )
             else:  # rewind
                 rewind_from_str = f"{wandb_run_id}?_step={checkpoint_step}"
-                print(f"Rewinding wandb run {wandb_run_id} {source} to step {checkpoint_step} (checkpoint: {checkpoint_path})")
+                print(
+                    f"Rewinding wandb run {wandb_run_id} {source} to step {checkpoint_step} (checkpoint: {checkpoint_path})"
+                )
 
         # Wandb logging (always enabled)
         if config and "wandb" in config:
