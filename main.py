@@ -165,6 +165,9 @@ def main():
 
         # Fork from checkpoint (create new wandb run branching from original at checkpoint step)
         python main.py configs/instructed.yaml training.from_checkpoint=path/to/checkpoint.pt training.fork=true
+
+        # Rewind run (truncate same wandb run history back to checkpoint step)
+        python main.py configs/instructed.yaml training.from_checkpoint=path/to/checkpoint.pt training.rewind=true
     """
     # Parse CLI
     if len(sys.argv) < 2 or "=" in sys.argv[1]:

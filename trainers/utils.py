@@ -31,6 +31,7 @@ class BaseTrainer:
         resume: bool = False,
         resume_run_id: Optional[str] = None,
         fork: bool = False,
+        rewind: bool = False,
     ):
         """Initialize base trainer.
 
@@ -49,6 +50,7 @@ class BaseTrainer:
             resume: If True, resume the wandb run from checkpoint (requires wandb_run_id in checkpoint or resume_run_id)
             resume_run_id: Manually specify wandb run ID for resuming (for old checkpoints without wandb_run_id)
             fork: If True, fork from the wandb run at the checkpoint step (creates new run branching from original)
+            rewind: If True, rewind the same wandb run to the checkpoint step (truncates history, keeps same run ID)
         """
         self.model = model
         self.log_dir = Path(log_dir)
@@ -76,20 +78,21 @@ class BaseTrainer:
 
         self.criterion = nn.MSELoss(reduction="none")
 
-        # Validate that resume and fork are not both True
-        if resume and fork:
-            raise ValueError("Cannot use both resume=True and fork=True. Choose one.")
+        # Validate that only one of resume/fork/rewind is True
+        mode_count = sum([resume, fork, rewind])
+        if mode_count > 1:
+            raise ValueError("Cannot use multiple modes simultaneously. Choose one of: resume, fork, or rewind.")
 
-        # If resuming or forking, load checkpoint early to get wandb_run_id and step
+        # If resuming, forking, or rewinding, load checkpoint early to get wandb_run_id and step
         wandb_run_id = None
         fork_from_str = None
+        rewind_from_str = None
         checkpoint_step = None
 
-        if resume or fork:
+        if resume or fork or rewind:
             if from_checkpoint is None:
-                raise ValueError(
-                    f"Cannot {'resume' if resume else 'fork'} without specifying from_checkpoint"
-                )
+                mode_name = 'resume' if resume else ('fork' if fork else 'rewind')
+                raise ValueError(f"Cannot {mode_name} without specifying from_checkpoint")
             checkpoint_path = Path(from_checkpoint)
             if not checkpoint_path.exists():
                 raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
@@ -105,18 +108,22 @@ class BaseTrainer:
                 wandb_run_id = resume_run_id
                 source = "(manually specified)"
             else:
+                mode_name = 'resume' if resume else ('fork' if fork else 'rewind')
                 raise ValueError(
-                    f"Cannot {'resume' if resume else 'fork'} from checkpoint {checkpoint_path}: "
+                    f"Cannot {mode_name} from checkpoint {checkpoint_path}: "
                     "wandb_run_id not found in checkpoint and resume_run_id not provided. "
                     "For old checkpoints, specify resume_run_id parameter with the wandb run ID."
                 )
 
-            # Print status and prepare fork string if needed
+            # Print status and prepare fork/rewind string if needed
             if resume:
                 print(f"Resuming wandb run {wandb_run_id} {source} (checkpoint: {checkpoint_path})")
-            else:  # fork
+            elif fork:
                 fork_from_str = f"{wandb_run_id}?_step={checkpoint_step}"
                 print(f"Forking from wandb run {wandb_run_id} {source} at step {checkpoint_step} (checkpoint: {checkpoint_path})")
+            else:  # rewind
+                rewind_from_str = f"{wandb_run_id}?_step={checkpoint_step}"
+                print(f"Rewinding wandb run {wandb_run_id} {source} to step {checkpoint_step} (checkpoint: {checkpoint_path})")
 
         # Wandb logging (always enabled)
         if config and "wandb" in config:
@@ -142,8 +149,11 @@ class BaseTrainer:
                 init_kwargs["id"] = wandb_run_id
                 init_kwargs["resume"] = "allow"  # Allows overwriting data at same steps
             elif fork:
-                # Fork from the specified run and step
+                # Fork from the specified run and step (creates new run)
                 init_kwargs["fork_from"] = fork_from_str
+            elif rewind:
+                # Rewind the same run to the specified step (truncates history)
+                init_kwargs["resume_from"] = rewind_from_str
 
             wandb.init(**init_kwargs)
 
@@ -202,10 +212,10 @@ class BaseTrainer:
 
         # Load checkpoint if provided
         if from_checkpoint is not None:
-            # resume=True or fork=True: continue from checkpoint step (reset_counters=False)
-            # resume=False and fork=False: use as initialization, reset to step 0 (reset_counters=True)
+            # resume=True or fork=True or rewind=True: continue from checkpoint step (reset_counters=False)
+            # All False: use as initialization, reset to step 0 (reset_counters=True)
             self.load_checkpoint(
-                from_checkpoint, reset_counters=(not resume and not fork)
+                from_checkpoint, reset_counters=(not resume and not fork and not rewind)
             )
 
     def train_step(self, batch: list, task: BaseTask) -> float:
